@@ -1960,7 +1960,7 @@ async function renderSavedCubes() {
     delBtn.addEventListener('click', async () => {
       if (source === 'nuvem' && item.id) {
         try {
-          await api(`/cubes/${item.id}`, { method: 'DELETE' });
+          await api(`/cubes?id=${encodeURIComponent(item.id)}`, { method: 'DELETE' });
         } catch (err) {
           alert(err.message || 'Falha ao excluir');
           return;
@@ -2006,7 +2006,7 @@ async function renderCloudDatasets() {
       openBtn.textContent = 'Abrir';
       openBtn.addEventListener('click', async () => {
         try {
-          const full = await api(`/datasets/${ds.id}`);
+          const full = await api(`/dataset?id=${encodeURIComponent(ds.id)}`);
           await loadDataset(full.dataset.rows, full.dataset.name, {
             persist: false,
             datasetId: full.dataset.id,

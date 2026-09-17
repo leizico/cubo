@@ -14,7 +14,6 @@ import {
   deleteDataset,
   findUserByEmail,
   findUserById,
-  getCube,
   getDataset,
   getStoreMeta,
   listCubes,
@@ -37,9 +36,7 @@ app.use('*', cors({
 async function requireUser(c) {
   const token = readAuthToken(c);
   const payload = await verifyToken(token);
-  if (!payload?.id) {
-    return null;
-  }
+  if (!payload?.id) return null;
   const user = await findUserById(payload.id);
   return user ? sanitizeUser(user) : null;
 }
@@ -49,19 +46,15 @@ app.get('/health', async (c) => {
   return c.json({ ok: true, ...meta, ts: Date.now() });
 });
 
-app.post('/session/register', async (c) => {
+app.post('/register', async (c) => {
   try {
     const body = await c.req.json();
     const email = String(body.email || '').trim().toLowerCase();
     const password = String(body.password || '');
     const name = String(body.name || email.split('@')[0] || 'Analista').trim();
 
-    if (!email || !email.includes('@')) {
-      return c.json({ error: 'E-mail inválido' }, 400);
-    }
-    if (password.length < 6) {
-      return c.json({ error: 'Senha deve ter pelo menos 6 caracteres' }, 400);
-    }
+    if (!email || !email.includes('@')) return c.json({ error: 'E-mail inválido' }, 400);
+    if (password.length < 6) return c.json({ error: 'Senha deve ter pelo menos 6 caracteres' }, 400);
 
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await createUser({ email, passwordHash, name });
@@ -73,19 +66,15 @@ app.post('/session/register', async (c) => {
   }
 });
 
-app.post('/session/login', async (c) => {
+app.post('/login', async (c) => {
   try {
     const body = await c.req.json();
     const email = String(body.email || body.username || '').trim().toLowerCase();
     const password = String(body.password || '');
-
-    if (!email || !password) {
-      return c.json({ error: 'Informe e-mail e senha' }, 400);
-    }
+    if (!email || !password) return c.json({ error: 'Informe e-mail e senha' }, 400);
 
     let userRow = await findUserByEmail(email);
 
-    // Bootstrap: cria admin demo na primeira vez
     if (!userRow && (email === 'admin' || email === 'admin@bicubo.app') && password === 'admin') {
       const passwordHash = await bcrypt.hash('admin', 10);
       const created = await createUser({
@@ -96,19 +85,13 @@ app.post('/session/login', async (c) => {
       userRow = await findUserById(created.id);
     }
 
-    // Aceita login com "admin" apontando para admin@bicubo.app
     if (!userRow && email === 'admin') {
       userRow = await findUserByEmail('admin@bicubo.app');
     }
 
-    if (!userRow) {
-      return c.json({ error: 'Credenciais inválidas' }, 401);
-    }
-
+    if (!userRow) return c.json({ error: 'Credenciais inválidas' }, 401);
     const ok = await bcrypt.compare(password, userRow.passwordHash);
-    if (!ok) {
-      return c.json({ error: 'Credenciais inválidas' }, 401);
-    }
+    if (!ok) return c.json({ error: 'Credenciais inválidas' }, 401);
 
     const user = sanitizeUser(userRow);
     const token = await signToken(user);
@@ -119,12 +102,12 @@ app.post('/session/login', async (c) => {
   }
 });
 
-app.post('/session/logout', async (c) => {
+app.post('/logout', async (c) => {
   clearAuthCookie(c);
   return c.json({ ok: true });
 });
 
-app.get('/session/me', async (c) => {
+app.get('/me', async (c) => {
   const user = await requireUser(c);
   if (!user) return c.json({ user: null }, 401);
   return c.json({ user });
@@ -133,8 +116,7 @@ app.get('/session/me', async (c) => {
 app.get('/cubes', async (c) => {
   const user = await requireUser(c);
   if (!user) return c.json({ error: 'Não autenticado' }, 401);
-  const cubes = await listCubes(user.id);
-  return c.json({ cubes });
+  return c.json({ cubes: await listCubes(user.id) });
 });
 
 app.post('/cubes', async (c) => {
@@ -145,25 +127,18 @@ app.post('/cubes', async (c) => {
     if (!body.name || !String(body.name).trim()) {
       return c.json({ error: 'Nome do cubo é obrigatório' }, 400);
     }
-    const cube = await saveCube(user.id, body);
-    return c.json({ cube });
+    return c.json({ cube: await saveCube(user.id, body) });
   } catch (e) {
     return c.json({ error: e.message || 'Falha ao salvar cubo' }, e.status || 500);
   }
 });
 
-app.get('/cubes/:id', async (c) => {
+app.delete('/cubes', async (c) => {
   const user = await requireUser(c);
   if (!user) return c.json({ error: 'Não autenticado' }, 401);
-  const cube = await getCube(user.id, c.req.param('id'));
-  if (!cube) return c.json({ error: 'Cubo não encontrado' }, 404);
-  return c.json({ cube });
-});
-
-app.delete('/cubes/:id', async (c) => {
-  const user = await requireUser(c);
-  if (!user) return c.json({ error: 'Não autenticado' }, 401);
-  const ok = await deleteCube(user.id, c.req.param('id'));
+  const id = c.req.query('id');
+  if (!id) return c.json({ error: 'id obrigatório' }, 400);
+  const ok = await deleteCube(user.id, id);
   if (!ok) return c.json({ error: 'Cubo não encontrado' }, 404);
   return c.json({ ok: true });
 });
@@ -171,8 +146,7 @@ app.delete('/cubes/:id', async (c) => {
 app.get('/datasets', async (c) => {
   const user = await requireUser(c);
   if (!user) return c.json({ error: 'Não autenticado' }, 401);
-  const datasets = await listDatasets(user.id);
-  return c.json({ datasets });
+  return c.json({ datasets: await listDatasets(user.id) });
 });
 
 app.post('/datasets', async (c) => {
@@ -180,20 +154,19 @@ app.post('/datasets', async (c) => {
   if (!user) return c.json({ error: 'Não autenticado' }, 401);
   try {
     const body = await c.req.json();
-    const meta = await saveDataset(user.id, {
-      name: body.name,
-      rows: body.rows,
-    });
+    const meta = await saveDataset(user.id, { name: body.name, rows: body.rows });
     return c.json({ dataset: meta });
   } catch (e) {
     return c.json({ error: e.message || 'Falha ao salvar dataset' }, e.status || 500);
   }
 });
 
-app.get('/datasets/:id', async (c) => {
+app.get('/dataset', async (c) => {
   const user = await requireUser(c);
   if (!user) return c.json({ error: 'Não autenticado' }, 401);
-  const dataset = await getDataset(user.id, c.req.param('id'));
+  const id = c.req.query('id');
+  if (!id) return c.json({ error: 'id obrigatório' }, 400);
+  const dataset = await getDataset(user.id, id);
   if (!dataset) return c.json({ error: 'Dataset não encontrado' }, 404);
   return c.json({
     dataset: {
@@ -207,10 +180,12 @@ app.get('/datasets/:id', async (c) => {
   });
 });
 
-app.delete('/datasets/:id', async (c) => {
+app.delete('/dataset', async (c) => {
   const user = await requireUser(c);
   if (!user) return c.json({ error: 'Não autenticado' }, 401);
-  const ok = await deleteDataset(user.id, c.req.param('id'));
+  const id = c.req.query('id');
+  if (!id) return c.json({ error: 'id obrigatório' }, 400);
+  const ok = await deleteDataset(user.id, id);
   if (!ok) return c.json({ error: 'Dataset não encontrado' }, 404);
   return c.json({ ok: true });
 });
@@ -221,21 +196,16 @@ app.post('/sql', async (c) => {
   try {
     const body = await c.req.json();
     let rows = Array.isArray(body.rows) ? body.rows : null;
-
     if (!rows && body.datasetId) {
       const dataset = await getDataset(user.id, body.datasetId);
       if (!dataset) return c.json({ error: 'Dataset não encontrado' }, 404);
       rows = dataset.rows;
     }
-
     if (!rows || !rows.length) {
       return c.json({ error: 'Nenhum dado disponível para consultar' }, 400);
     }
-
-    const result = runSqlOnRows(body.sql || '', rows);
-    // runSqlOnRows agora é async
-    const resolved = await result;
-    return c.json({ result: resolved });
+    const result = await runSqlOnRows(body.sql || '', rows);
+    return c.json({ result });
   } catch (e) {
     return c.json({ error: e.message || 'Falha na consulta SQL' }, e.status || 500);
   }

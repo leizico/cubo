@@ -1,5 +1,5 @@
 /**
- * Catch-all obrigatório: /api/* → esta função.
+ * Rota dinâmica de 1 segmento: /api/:route
  */
 import app from '../server/app.js';
 
