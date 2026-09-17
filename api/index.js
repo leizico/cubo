@@ -1,6 +1,5 @@
 /**
- * Handler serverless Vercel (Node) + Hono.
- * Export em formato Node para evitar hang do adapter edge.
+ * Handler único: todas as rotas /api/* são reescritas para cá.
  */
 import app from '../server/app.js';
 
@@ -14,6 +13,7 @@ export const config = {
 function buildRequest(req) {
   const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
   const proto = req.headers['x-forwarded-proto'] || 'https';
+  // Mantém o path original (/api/...)
   const url = `${proto}://${host}${req.url}`;
 
   const headers = new Headers();
@@ -25,19 +25,16 @@ function buildRequest(req) {
 
   const method = req.method || 'GET';
   const init = { method, headers };
-
   if (method !== 'GET' && method !== 'HEAD') {
     init.body = req;
     init.duplex = 'half';
   }
-
   return new Request(url, init);
 }
 
 export default async function handler(req, res) {
   try {
-    const request = buildRequest(req);
-    const response = await app.fetch(request);
+    const response = await app.fetch(buildRequest(req));
     res.statusCode = response.status;
     response.headers.forEach((value, key) => {
       if (key.toLowerCase() === 'set-cookie') {
@@ -49,8 +46,7 @@ export default async function handler(req, res) {
         res.setHeader(key, value);
       }
     });
-    const buf = Buffer.from(await response.arrayBuffer());
-    res.end(buf);
+    res.end(Buffer.from(await response.arrayBuffer()));
   } catch (err) {
     console.error('API error:', err);
     res.statusCode = 500;
