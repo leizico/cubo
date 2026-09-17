@@ -1,5 +1,6 @@
 // app.js — Bi(Cubo) Enterprise OLAP Engine & Matrix Controller
-import { initAuth } from './auth.js';
+import { initAuth, getSession } from './auth.js';
+import { api } from './api-client.js';
 
 // CALENDAR MONTH ORDERING ENGINE
 const MONTH_MAP = {
@@ -80,7 +81,9 @@ const state = {
   lastMatrixAOA: null,
   collapsedNodes: new Set(), // stores collapsed tree row keys
   showSubtotals: true, // Excel / Google Sheets group subtotals
-  layoutMode: 'tabular' // 'tabular' (Excel) or 'compact' (Google Sheets)
+  layoutMode: 'tabular', // 'tabular' (Excel) or 'compact' (Google Sheets)
+  currentDatasetId: null,
+  currentDatasetName: null,
 };
 
 export function getFieldLabel(field) {
@@ -157,7 +160,7 @@ function detectType(values) {
 }
 
 // LOAD DATASET INTO STATE
-function loadDataset(rows, datasetName = 'Dados Importados') {
+async function loadDataset(rows, datasetName = 'Dados Importados', { persist = true, datasetId = null } = {}) {
   state.data = rows;
   state.fields = rows.length ? Object.keys(rows[0]) : [];
   state.fieldTypes = {};
@@ -165,13 +168,11 @@ function loadDataset(rows, datasetName = 'Dados Importados') {
     state.fieldTypes[f] = detectType(rows.map((r) => r[f]));
   });
 
-  // Build distinct value cache for all fields (used by getFilteredData)
   state._fieldDistinct = {};
   state.fields.forEach((f) => {
     state._fieldDistinct[f] = new Set(getDistinctValues(f).map(String));
   });
 
-  // Default smart preset for empty pivot
   state.pivot = {
     filters: [],
     rows: ['Família', 'Descrição Item'].filter(f => state.fields.includes(f)),
@@ -181,7 +182,6 @@ function loadDataset(rows, datasetName = 'Dados Importados') {
       : (state.fields.length ? [{ field: state.fields.find(f => state.fieldTypes[f] === 'num') || state.fields[0], agg: 'sum' }] : [])
   };
 
-  // Chart default preset
   state.chart = {
     x: state.pivot.cols[0] || state.pivot.rows[0] || null,
     series: state.pivot.rows[0] || null,
@@ -191,11 +191,28 @@ function loadDataset(rows, datasetName = 'Dados Importados') {
 
   state.filterSelected = {};
   state.collapsedNodes.clear();
+  state.currentDatasetId = datasetId;
+  state.currentDatasetName = datasetName;
 
   document.getElementById('datasetInfoTag').textContent = `Base: ${datasetName} (${rows.length} registros)`;
   document.getElementById('fieldsCountBadge').textContent = state.fields.length;
 
   refreshAll();
+
+  if (persist && getSession() && rows.length) {
+    try {
+      const data = await api('/datasets', {
+        method: 'POST',
+        body: { name: datasetName, rows },
+      });
+      state.currentDatasetId = data.dataset.id;
+      document.getElementById('datasetInfoTag').textContent =
+        `Base: ${datasetName} (${rows.length} registros) · nuvem`;
+      renderCloudDatasets();
+    } catch (err) {
+      console.warn('Falha ao persistir dataset:', err.message);
+    }
+  }
 }
 
 // FILE READERS
@@ -1805,63 +1822,122 @@ if (sqlPresets) {
     if (sqlPresets.value === 'all') {
       sqlQueryText.value = 'SELECT Mês, Família, Descrição_Item, Segmento, Região, Vendedor, Faturamento, Quantidade, Margem FROM Vendas_Empresariais;';
     } else if (sqlPresets.value === 'summary') {
-      sqlQueryText.value = 'SELECT Mês, Família, SUM(Faturamento) AS Total_Faturamento FROM Vendas_Empresariais GROUP BY Mês, Família;';
+      sqlQueryText.value = 'SELECT Mês, Família, SUM(Faturamento) AS total_fat FROM Vendas_Empresariais GROUP BY Mês, Família;';
     } else if (sqlPresets.value === 'top_items') {
-      sqlQueryText.value = 'SELECT Descrição_Item, Segmento, Região, SUM(Faturamento) AS Total_Faturamento FROM Vendas_Empresariais GROUP BY Descrição_Item;';
+      sqlQueryText.value = 'SELECT Descrição_Item, Segmento, SUM(Faturamento) AS total_fat FROM Vendas_Empresariais GROUP BY Descrição_Item, Segmento;';
     }
   });
 }
 
 if (btnRunSql) {
-  btnRunSql.addEventListener('click', () => {
-    // If no dataset loaded yet, auto load demo
-    if (!state.data.length) {
-      loadDataset(generateDemoDataset(), 'Consulta SQL (Demo)');
-    } else {
-      refreshAll();
+  btnRunSql.addEventListener('click', async () => {
+    const statusEl = document.getElementById('sqlStatusMessage');
+    const sql = (sqlQueryText?.value || '').trim();
+    if (!sql) {
+      alert('Digite uma consulta SQL.');
+      return;
     }
-    sqlModal.classList.add('hidden');
-    alert('Consulta SQL executada com sucesso na base em memória!');
+
+    if (!state.data.length) {
+      await loadDataset(generateDemoDataset(), 'Consulta SQL (Demo)');
+    }
+
+    if (statusEl) {
+      statusEl.className = 'status-msg info';
+      statusEl.textContent = 'Executando SELECT na API...';
+    }
+
+    try {
+      const data = await api('/sql', {
+        method: 'POST',
+        body: {
+          sql,
+          datasetId: state.currentDatasetId,
+          rows: state.currentDatasetId ? undefined : state.data,
+        },
+      });
+
+      const resultRows = data.result?.rows || [];
+      if (!resultRows.length) {
+        if (statusEl) {
+          statusEl.className = 'status-msg info';
+          statusEl.textContent = 'Consulta OK — 0 linhas retornadas.';
+        }
+        alert('Consulta executada, mas não retornou linhas.');
+        return;
+      }
+
+      await loadDataset(resultRows, `SQL · ${resultRows.length} linhas`, { persist: true });
+      sqlModal.classList.add('hidden');
+      if (statusEl) {
+        statusEl.className = 'status-msg success';
+        statusEl.textContent = `OK · ${resultRows.length} linhas · ${data.result.executedSql}`;
+      }
+    } catch (err) {
+      if (statusEl) {
+        statusEl.className = 'status-msg danger';
+        statusEl.textContent = err.message || 'Falha SQL';
+      }
+      alert(err.message || 'Falha ao executar SQL');
+    }
   });
 }
 
-// PERSISTENT SAVED CUBES MANAGEMENT (LOCALSTORAGE)
+// PERSISTENT SAVED CUBES (API + fallback local)
 const LS_CUBES_KEY = 'bi_cubo_enterprise_saved_cubes_v2';
 
-function loadSavedCubes() {
+function loadLocalCubes() {
   try {
     const raw = localStorage.getItem(LS_CUBES_KEY);
     return raw ? JSON.parse(raw) : [];
-  } catch (e) {
+  } catch {
     return [];
   }
 }
 
-function persistSavedCubes(list) {
+function persistLocalCubes(list) {
   try {
     localStorage.setItem(LS_CUBES_KEY, JSON.stringify(list));
-  } catch (e) {}
+  } catch {}
 }
 
-function renderSavedCubes() {
+async function fetchCloudCubes() {
+  if (!getSession()) return null;
+  try {
+    const data = await api('/cubes');
+    return data.cubes || [];
+  } catch {
+    return null;
+  }
+}
+
+async function renderSavedCubes() {
   const host = document.getElementById('savedCubesList');
   if (!host) return;
 
-  const list = loadSavedCubes();
+  host.innerHTML = '<div class="empty-cubes-hint" style="font-size:0.7rem; color:var(--color-text-muted); padding:0.4rem 0;">Carregando...</div>';
+
+  let list = await fetchCloudCubes();
+  let source = 'nuvem';
+  if (!list) {
+    list = loadLocalCubes();
+    source = 'local';
+  }
+
   host.innerHTML = '';
 
   if (!list.length) {
-    host.innerHTML = '<div class="empty-cubes-hint" style="font-size:0.7rem; color:var(--color-text-muted); padding:0.4rem 0;">Nenhum cubo salvo no navegador.</div>';
+    host.innerHTML = `<div class="empty-cubes-hint" style="font-size:0.7rem; color:var(--color-text-muted); padding:0.4rem 0;">Nenhum cubo salvo (${source}).</div>`;
     return;
   }
 
-  list.forEach((item, idx) => {
+  list.forEach((item) => {
     const row = document.createElement('div');
     row.className = 'cube-item-row';
 
     const titleSpan = document.createElement('span');
     titleSpan.textContent = item.name;
-    titleSpan.title = `${item.name} (${new Date(item.savedAt).toLocaleDateString('pt-BR')})`;
+    titleSpan.title = `${item.name} (${new Date(item.savedAt).toLocaleDateString('pt-BR')}) · ${source}`;
     row.appendChild(titleSpan);
 
     const btnGroup = document.createElement('div');
@@ -1881,10 +1957,18 @@ function renderSavedCubes() {
     delBtn.style.borderColor = 'var(--border-color)';
     delBtn.textContent = '✕';
     delBtn.title = 'Excluir cubo salvo';
-    delBtn.addEventListener('click', () => {
-      const cubes = loadSavedCubes();
-      cubes.splice(idx, 1);
-      persistSavedCubes(cubes);
+    delBtn.addEventListener('click', async () => {
+      if (source === 'nuvem' && item.id) {
+        try {
+          await api(`/cubes/${item.id}`, { method: 'DELETE' });
+        } catch (err) {
+          alert(err.message || 'Falha ao excluir');
+          return;
+        }
+      } else {
+        const cubes = loadLocalCubes().filter((c) => c.id !== item.id && c.name !== item.name);
+        persistLocalCubes(cubes);
+      }
       renderSavedCubes();
     });
     btnGroup.appendChild(delBtn);
@@ -1892,6 +1976,51 @@ function renderSavedCubes() {
     row.appendChild(btnGroup);
     host.appendChild(row);
   });
+}
+
+async function renderCloudDatasets() {
+  const host = document.getElementById('cloudDatasetsList');
+  if (!host || !getSession()) {
+    if (host) host.innerHTML = '';
+    return;
+  }
+
+  try {
+    const data = await api('/datasets');
+    const list = data.datasets || [];
+    host.innerHTML = '';
+    if (!list.length) {
+      host.innerHTML = '<div class="empty-cubes-hint" style="font-size:0.7rem; color:var(--color-text-muted);">Nenhum dataset na nuvem.</div>';
+      return;
+    }
+    list.forEach((ds) => {
+      const row = document.createElement('div');
+      row.className = 'cube-item-row';
+      const title = document.createElement('span');
+      title.textContent = `${ds.name} (${ds.rowCount})`;
+      title.title = 'Carregar dataset da nuvem';
+      row.appendChild(title);
+
+      const openBtn = document.createElement('button');
+      openBtn.className = 'btn btn-xs btn-primary';
+      openBtn.textContent = 'Abrir';
+      openBtn.addEventListener('click', async () => {
+        try {
+          const full = await api(`/datasets/${ds.id}`);
+          await loadDataset(full.dataset.rows, full.dataset.name, {
+            persist: false,
+            datasetId: full.dataset.id,
+          });
+        } catch (err) {
+          alert(err.message || 'Falha ao abrir dataset');
+        }
+      });
+      row.appendChild(openBtn);
+      host.appendChild(row);
+    });
+  } catch {
+    host.innerHTML = '';
+  }
 }
 
 function applySavedCube(item) {
@@ -1914,7 +2043,6 @@ function applySavedCube(item) {
     state.fieldSortDirs = { ...item.fieldSortDirs };
   }
 
-  // Restore filter selection
   if (item.filterSelected) {
     Object.keys(item.filterSelected).forEach((f) => {
       if (validField(f)) {
@@ -1923,7 +2051,6 @@ function applySavedCube(item) {
     });
   }
 
-  // Restore chart config
   if (item.chart) {
     state.chart = {
       x: validField(item.chart.x) ? item.chart.x : null,
@@ -1941,10 +2068,9 @@ function applySavedCube(item) {
   alert(`Cubo "${item.name}" carregado com sucesso!`);
 }
 
-// SAVE CUBE EVENT HANDLER
 const btnSaveCube = document.getElementById('btnSaveCube');
 if (btnSaveCube) {
-  btnSaveCube.addEventListener('click', () => {
+  btnSaveCube.addEventListener('click', async () => {
     if (!state.data.length) {
       alert('Carregue dados antes de salvar o cubo.');
       return;
@@ -1952,10 +2078,8 @@ if (btnSaveCube) {
 
     const defaultName = `Cubo - ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
     const cubeName = prompt('Digite um nome para este cubo (visão analítica):', defaultName);
-
     if (!cubeName || !cubeName.trim()) return;
 
-    // Convert filterSelected Sets to arrays for JSON serialization
     const filterSelectedObj = {};
     Object.keys(state.filterSelected).forEach((f) => {
       if (state.filterSelected[f]) {
@@ -1964,8 +2088,8 @@ if (btnSaveCube) {
     });
 
     const cubeRecord = {
-      id: 'cube_' + Date.now(),
       name: cubeName.trim(),
+      datasetId: state.currentDatasetId,
       pivot: {
         rows: state.pivot.rows,
         cols: state.pivot.cols,
@@ -1977,25 +2101,32 @@ if (btnSaveCube) {
       filterSelected: filterSelectedObj,
       chart: state.chart,
       chartType: document.getElementById('chartType') ? document.getElementById('chartType').value : 'bar',
-      savedAt: Date.now()
     };
 
-    const cubes = loadSavedCubes();
-    cubes.push(cubeRecord);
-    persistSavedCubes(cubes);
-    renderSavedCubes();
-
-    alert(`Visão do cubo "${cubeName.trim()}" salva com sucesso neste navegador!`);
+    try {
+      if (getSession()) {
+        await api('/cubes', { method: 'POST', body: cubeRecord });
+        alert(`Cubo "${cubeName.trim()}" salvo na nuvem!`);
+      } else {
+        const local = loadLocalCubes();
+        local.push({ ...cubeRecord, id: 'local_' + Date.now(), savedAt: Date.now() });
+        persistLocalCubes(local);
+        alert(`Cubo "${cubeName.trim()}" salvo localmente neste navegador.`);
+      }
+      renderSavedCubes();
+    } catch (err) {
+      alert(err.message || 'Falha ao salvar cubo');
+    }
   });
 }
 
 // INIT AUTH & APP
 document.addEventListener('DOMContentLoaded', () => {
-  initAuth(() => {
-    // Auto load demo dataset on first login if empty
+  initAuth(async () => {
     if (!state.data.length) {
-      loadDataset(generateDemoDataset(), 'Vendas Empresariais (Demo)');
+      await loadDataset(generateDemoDataset(), 'Vendas Empresariais (Demo)');
     }
     renderSavedCubes();
+    renderCloudDatasets();
   });
 });

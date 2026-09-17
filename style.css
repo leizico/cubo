@@ -160,6 +160,16 @@ body.fullscreen-matrix-active .modal-overlay {
   color: #0369A1;
 }
 
+.status-msg.danger {
+  background: #FEE2E2;
+  color: #B91C1C;
+}
+
+.status-msg.success {
+  background: #D1FAE5;
+  color: #047857;
+}
+
 /* APP LAYOUT */
 .app-layout {
   display: flex;

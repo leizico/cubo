@@ -1,4 +1,5 @@
-// auth.js — Enterprise Session & User Profile Manager
+// auth.js — Auth real via API (JWT + cookie)
+import { api, clearToken, getToken, setToken } from './api-client.js';
 
 const SESSION_KEY = 'bi_cubo_enterprise_session_v1';
 
@@ -6,7 +7,7 @@ export function getSession() {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
     return raw ? JSON.parse(raw) : null;
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -14,13 +15,26 @@ export function getSession() {
 export function setSession(user) {
   try {
     localStorage.setItem(SESSION_KEY, JSON.stringify(user));
-  } catch (e) {}
+  } catch {}
 }
 
 export function clearSession() {
   try {
     localStorage.removeItem(SESSION_KEY);
-  } catch (e) {}
+  } catch {}
+  clearToken();
+}
+
+function mapUser(user) {
+  if (!user) return null;
+  return {
+    id: user.id,
+    username: user.email,
+    email: user.email,
+    name: user.name,
+    role: user.role || 'analyst',
+    loginTime: Date.now(),
+  };
 }
 
 export function initAuth(onUserChange) {
@@ -28,50 +42,126 @@ export function initAuth(onUserChange) {
   const loginForm = document.getElementById('loginForm');
   const inputUser = document.getElementById('inputUser');
   const inputPass = document.getElementById('inputPass');
+  const inputName = document.getElementById('inputName');
   const userNameLabel = document.getElementById('userNameLabel');
   const btnLogout = document.getElementById('btnLogout');
+  const authModeHint = document.getElementById('authModeHint');
+  const authToggleBtn = document.getElementById('authToggleMode');
+  const submitLoginBtn = document.getElementById('submitLoginBtn');
+  const authError = document.getElementById('authError');
+  const nameGroup = document.getElementById('nameGroup');
 
-  function updateUI() {
-    const session = getSession();
-    if (session && session.username) {
+  let mode = 'login'; // login | register
+
+  function showError(msg) {
+    if (!authError) return;
+    authError.textContent = msg || '';
+    authError.classList.toggle('hidden', !msg);
+  }
+
+  function setMode(next) {
+    mode = next;
+    const isRegister = mode === 'register';
+    if (nameGroup) nameGroup.classList.toggle('hidden', !isRegister);
+    if (authModeHint) {
+      authModeHint.textContent = isRegister
+        ? 'Crie sua conta para salvar cubos e datasets na nuvem.'
+        : 'Acesse com e-mail e senha. Demo: admin / admin';
+    }
+    if (authToggleBtn) {
+      authToggleBtn.textContent = isRegister
+        ? 'Já tenho conta — entrar'
+        : 'Criar nova conta';
+    }
+    if (submitLoginBtn) {
+      const span = submitLoginBtn.querySelector('span');
+      if (span) span.textContent = isRegister ? 'Criar conta' : 'Entrar no Sistema';
+    }
+    showError('');
+  }
+
+  function updateUI(session) {
+    if (session && (session.username || session.email)) {
       loginModal.classList.add('hidden');
-      if (userNameLabel) userNameLabel.textContent = session.name || session.username;
+      if (userNameLabel) userNameLabel.textContent = session.name || session.email || session.username;
       if (onUserChange) onUserChange(session);
     } else {
       loginModal.classList.remove('hidden');
     }
   }
 
-  if (loginForm) {
-    loginForm.addEventListener('submit', (e) => {
+  async function restoreSession() {
+    if (!getToken()) {
+      clearSession();
+      updateUI(null);
+      return;
+    }
+    try {
+      const data = await api('/auth/me');
+      const session = mapUser(data.user);
+      setSession(session);
+      updateUI(session);
+    } catch {
+      clearSession();
+      updateUI(null);
+    }
+  }
+
+  if (authToggleBtn) {
+    authToggleBtn.addEventListener('click', (e) => {
       e.preventDefault();
-      const userVal = inputUser.value.trim();
-      const passVal = inputPass.value.trim();
+      setMode(mode === 'login' ? 'register' : 'login');
+    });
+  }
+
+  if (loginForm) {
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      showError('');
+
+      const userVal = (inputUser?.value || '').trim();
+      const passVal = (inputPass?.value || '').trim();
+      const nameVal = (inputName?.value || '').trim();
 
       if (!userVal || !passVal) {
-        alert('Por favor, preencha o usuário e a senha.');
+        showError('Preencha usuário/e-mail e senha.');
         return;
       }
 
-      // Demo login validation
-      const sessionObj = {
-        username: userVal,
-        name: userVal === 'admin' ? 'Admin Analista' : userVal,
-        role: 'Director BI',
-        loginTime: Date.now()
-      };
+      const submitBtn = submitLoginBtn;
+      if (submitBtn) submitBtn.disabled = true;
 
-      setSession(sessionObj);
-      updateUI();
+      try {
+        const endpoint = mode === 'register' ? '/auth/register' : '/auth/login';
+        const body =
+          mode === 'register'
+            ? { email: userVal.includes('@') ? userVal : `${userVal}@bicubo.app`, password: passVal, name: nameVal || userVal }
+            : { email: userVal, password: passVal };
+
+        const data = await api(endpoint, { method: 'POST', body, auth: false });
+        setToken(data.token);
+        const session = mapUser(data.user);
+        setSession(session);
+        updateUI(session);
+      } catch (err) {
+        showError(err.message || 'Falha na autenticação');
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
     });
   }
 
   if (btnLogout) {
-    btnLogout.addEventListener('click', () => {
+    btnLogout.addEventListener('click', async () => {
+      try {
+        await api('/auth/logout', { method: 'POST' });
+      } catch {}
       clearSession();
-      updateUI();
+      updateUI(null);
+      window.location.reload();
     });
   }
 
-  updateUI();
+  setMode('login');
+  restoreSession();
 }

@@ -1,13 +1,25 @@
 {
   "name": "bi-cubo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -k -n api,web -c cyan,magenta \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:web": "vite",
+    "dev:api": "node server/dev-server.js",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start:api": "node server/dev-server.js"
   },
   "devDependencies": {
+    "concurrently": "^10.0.5",
     "vite": "^5.0.0"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "alasql": "^4.19.1",
+    "bcryptjs": "^3.0.3",
+    "hono": "^4.13.8",
+    "jose": "^6.2.12"
   }
 }

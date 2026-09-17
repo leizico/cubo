@@ -37,19 +37,26 @@
         <p>Insira suas credenciais para acessar o ambiente de análise multidimensional.</p>
       </div>
       <form id="loginForm" onsubmit="return false;">
+        <div id="authError" class="status-msg danger hidden" style="margin-bottom: 0.75rem;"></div>
+        <div class="form-group hidden" id="nameGroup">
+          <label for="inputName">Nome</label>
+          <input type="text" id="inputName" placeholder="Seu nome" />
+        </div>
         <div class="form-group">
-          <label for="inputUser">Usuário / Email</label>
-          <input type="text" id="inputUser" value="admin" placeholder="Digite seu usuário" required />
+          <label for="inputUser">E-mail / Usuário</label>
+          <input type="text" id="inputUser" value="admin" placeholder="admin ou voce@empresa.com" required autocomplete="username" />
         </div>
         <div class="form-group">
           <label for="inputPass">Senha</label>
-          <input type="password" id="inputPass" value="admin" placeholder="Digite sua senha" required />
+          <input type="password" id="inputPass" value="admin" placeholder="Mínimo 6 caracteres" required autocomplete="current-password" />
         </div>
+        <p id="authModeHint" style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0 0 0.75rem;">Acesse com e-mail e senha. Demo: admin / admin</p>
         <div class="form-actions">
           <button type="submit" id="submitLoginBtn" class="btn btn-primary btn-block">
             <span>Entrar no Sistema</span>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
           </button>
+          <button type="button" id="authToggleMode" class="btn btn-secondary btn-block" style="margin-top: 0.5rem;">Criar nova conta</button>
         </div>
       </form>
     </div>
@@ -70,8 +77,8 @@
           <label>Query Pré-definida:</label>
           <select id="sqlPresets">
             <option value="all">SELECT * FROM Vendas_Empresariais</option>
-            <option value="summary">SELECT Mês, Família, SUM(Faturamento) AS Total FROM Vendas GROUP BY Mês, Família</option>
-            <option value="top_items">SELECT Descrição_Item, Segmento, Região, SUM(Faturamento), AVG(Margem) FROM Vendas GROUP BY Item</option>
+            <option value="summary">SELECT Mês, Família, SUM(Faturamento) AS total_fat FROM Vendas GROUP BY Mês, Família</option>
+            <option value="top_items">SELECT Descrição_Item, Segmento, SUM(Faturamento) AS total_fat FROM Vendas GROUP BY Descrição_Item, Segmento</option>
           </select>
         </div>
         <div class="form-group">
@@ -281,6 +288,15 @@
           </div>
           <div id="savedCubesList" class="saved-cubes-list">
             <div class="empty-cubes-hint">Nenhum cubo salvo no navegador.</div>
+          </div>
+        </div>
+
+        <div class="sidebar-section">
+          <div class="section-header">
+            <span class="section-title">DATASETS NA NUVEM</span>
+          </div>
+          <div id="cloudDatasetsList" class="saved-cubes-list">
+            <div class="empty-cubes-hint">Faça login para ver datasets salvos.</div>
           </div>
         </div>
 

@@ -1,8 +1,11 @@
 node_modules/
 dist/
+data/
 .DS_Store
 Thumbs.db
 *.log
 .env
 .env.*
+!.env.example
 .vite/
+.vercel
