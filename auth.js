@@ -97,7 +97,7 @@ export function initAuth(onUserChange) {
       return;
     }
     try {
-      const data = await api('/auth/me');
+      const data = await api('/session/me');
       const session = mapUser(data.user);
       setSession(session);
       updateUI(session);
@@ -132,7 +132,7 @@ export function initAuth(onUserChange) {
       if (submitBtn) submitBtn.disabled = true;
 
       try {
-        const endpoint = mode === 'register' ? '/auth/register' : '/auth/login';
+        const endpoint = mode === 'register' ? '/session/register' : '/session/login';
         const body =
           mode === 'register'
             ? { email: userVal.includes('@') ? userVal : `${userVal}@bicubo.app`, password: passVal, name: nameVal || userVal }
@@ -154,7 +154,7 @@ export function initAuth(onUserChange) {
   if (btnLogout) {
     btnLogout.addEventListener('click', async () => {
       try {
-        await api('/auth/logout', { method: 'POST' });
+        await api('/session/logout', { method: 'POST' });
       } catch {}
       clearSession();
       updateUI(null);

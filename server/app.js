@@ -49,7 +49,7 @@ app.get('/health', async (c) => {
   return c.json({ ok: true, ...meta, ts: Date.now() });
 });
 
-app.post('/auth/register', async (c) => {
+app.post('/session/register', async (c) => {
   try {
     const body = await c.req.json();
     const email = String(body.email || '').trim().toLowerCase();
@@ -73,7 +73,7 @@ app.post('/auth/register', async (c) => {
   }
 });
 
-app.post('/auth/login', async (c) => {
+app.post('/session/login', async (c) => {
   try {
     const body = await c.req.json();
     const email = String(body.email || body.username || '').trim().toLowerCase();
@@ -119,12 +119,12 @@ app.post('/auth/login', async (c) => {
   }
 });
 
-app.post('/auth/logout', async (c) => {
+app.post('/session/logout', async (c) => {
   clearAuthCookie(c);
   return c.json({ ok: true });
 });
 
-app.get('/auth/me', async (c) => {
+app.get('/session/me', async (c) => {
   const user = await requireUser(c);
   if (!user) return c.json({ user: null }, 401);
   return c.json({ user });
