@@ -23,6 +23,33 @@ function isMonthField(fieldName) {
   return /mês|mes|month|periodo|período/i.test(fieldName);
 }
 
+/** Normaliza valores de dimensão (null/vazio → marcador estável). */
+function normalizeDimValue(v) {
+  if (v === null || v === undefined || v === '') return '(vazio)';
+  return v;
+}
+
+/** Verifica inclusão em Set tolerando number vs string (ex.: restore do localStorage). */
+function selectionHas(sel, val) {
+  if (!sel) return false;
+  return sel.has(val) || sel.has(String(val));
+}
+
+/** Lista distinta ordenada de um campo, incluindo '(vazio)' quando existir. */
+function getDistinctValues(field) {
+  const distinct = Array.from(new Set(state.data.map((r) => normalizeDimValue(r[field]))));
+  if (isMonthField(field)) {
+    distinct.sort((a, b) => getMonthIndex(a) - getMonthIndex(b));
+  } else {
+    distinct.sort((a, b) => ('' + a).localeCompare(('' + b), 'pt-BR', { numeric: true }));
+  }
+  return distinct;
+}
+
+function dimValuesMatch(a, b) {
+  return String(normalizeDimValue(a)) === String(normalizeDimValue(b));
+}
+
 // AGGREGATION FUNCTIONS
 const AGGS = {
   sum: { label: 'Soma', fn: (arr) => arr.reduce((a, b) => a + b, 0) },
@@ -141,11 +168,7 @@ function loadDataset(rows, datasetName = 'Dados Importados') {
   // Build distinct value cache for all fields (used by getFilteredData)
   state._fieldDistinct = {};
   state.fields.forEach((f) => {
-    const vals = Array.from(new Set(rows.map(r => {
-      const v = r[f];
-      return (v === null || v === undefined || v === '') ? '(vazio)' : v;
-    })));
-    state._fieldDistinct[f] = new Set(vals.map(String));
+    state._fieldDistinct[f] = new Set(getDistinctValues(f).map(String));
   });
 
   // Default smart preset for empty pivot
@@ -180,10 +203,13 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
 
+  const isCsv = /\.csv$/i.test(file.name);
   const reader = new FileReader();
   reader.onload = (ev) => {
     try {
-      const wb = XLSX.read(ev.target.result, { type: 'array', cellDates: true });
+      const wb = isCsv
+        ? XLSX.read(ev.target.result, { type: 'string', cellDates: true })
+        : XLSX.read(ev.target.result, { type: 'array', cellDates: true });
       state.workbook = wb;
       const sheetName = wb.SheetNames[0];
       const ws = wb.Sheets[sheetName];
@@ -199,15 +225,18 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
 
       loadDataset(rows, file.name);
     } catch (err) {
-      alert('Erro ao carregar arquivo Excel: ' + err.message);
+      alert('Erro ao carregar arquivo: ' + err.message);
     }
   };
-  reader.readAsArrayBuffer(file);
+  if (isCsv) reader.readAsText(file, 'UTF-8');
+  else reader.readAsArrayBuffer(file);
 });
 
 document.getElementById('sheetSelect').addEventListener('change', (e) => {
+  if (!state.workbook) return;
   const sheetName = e.target.value;
   const ws = state.workbook.Sheets[sheetName];
+  if (!ws) return;
   const rows = XLSX.utils.sheet_to_json(ws, { defval: null, raw: true });
   loadDataset(rows, `${sheetName}`);
 });
@@ -343,11 +372,9 @@ function handleDrop(zoneKey, field) {
 }
 
 function initFilterValues(field) {
-  const distinct = Array.from(new Set(state.data.map(r => r[field]))).filter(v => v !== null && v !== undefined && v !== '');
-  // Build and cache the distinct value list for this field
+  const distinct = getDistinctValues(field);
   if (!state._fieldDistinct) state._fieldDistinct = {};
   state._fieldDistinct[field] = new Set(distinct.map(String));
-  // Only init if not already set (preserve existing selections)
   if (!state.filterSelected[field]) {
     state.filterSelected[field] = new Set(distinct);
   }
@@ -370,16 +397,17 @@ function openFilterModal(field) {
   sub.textContent = `Selecione os valores permitidos para o campo "${field}".`;
   searchInput.value = '';
 
-  const distinct = Array.from(new Set(state.data.map(r => r[field])))
-    .filter(v => v !== null && v !== undefined && v !== '');
+  const distinct = getDistinctValues(field);
 
-  if (isMonthField(field)) {
-    distinct.sort((a, b) => getMonthIndex(a) - getMonthIndex(b));
+  let currentSelected = new Set();
+  const previous = state.filterSelected[field];
+  if (previous) {
+    distinct.forEach((v) => {
+      if (selectionHas(previous, v)) currentSelected.add(v);
+    });
   } else {
-    distinct.sort((a, b) => ('' + a).localeCompare(('' + b), 'pt-BR', { numeric: true }));
+    distinct.forEach((v) => currentSelected.add(v));
   }
-
-  let currentSelected = new Set(state.filterSelected[field] || distinct);
 
   function renderValueItems() {
     listContainer.innerHTML = '';
@@ -398,12 +426,13 @@ function openFilterModal(field) {
 
       const cb = document.createElement('input');
       cb.type = 'checkbox';
-      cb.checked = currentSelected.has(val);
+      cb.checked = selectionHas(currentSelected, val);
       cb.addEventListener('change', () => {
         if (cb.checked) {
           currentSelected.add(val);
         } else {
           currentSelected.delete(val);
+          currentSelected.delete(String(val));
         }
         counter.textContent = `${currentSelected.size}/${distinct.length} Selecionados`;
       });
@@ -424,7 +453,7 @@ function openFilterModal(field) {
   const btnSelectAll = document.getElementById('btnSelectAllFilter');
   if (btnSelectAll) {
     btnSelectAll.onclick = () => {
-      distinct.forEach(v => currentSelected.add(v));
+      currentSelected = new Set(distinct);
       renderValueItems();
     };
   }
@@ -440,12 +469,10 @@ function openFilterModal(field) {
   const btnApply = document.getElementById('btnApplyFilter');
   if (btnApply) {
     btnApply.onclick = () => {
-      // Cache the distinct values for this field
       if (!state._fieldDistinct) state._fieldDistinct = {};
       state._fieldDistinct[field] = new Set(distinct.map(String));
 
       state.filterSelected[field] = new Set(currentSelected);
-      // Global filter zone — only add to pivot.filters if not already a row/col dimension
       const isInDimension = state.pivot.rows.includes(field) || state.pivot.cols.includes(field);
       if (!isInDimension && !state.pivot.filters.includes(field)) {
         state.pivot.filters.push(field);
@@ -545,9 +572,9 @@ function renderFiltersZone() {
     chip.className = 'zone-chip';
     chip.draggable = true;
 
-    const distinct = Array.from(new Set(state.data.map(r => r[field]))).filter(v => v !== null && v !== undefined && v !== '');
+    const distinct = getDistinctValues(field);
     const selectedSet = state.filterSelected[field] || new Set(distinct);
-    const selCount = selectedSet.size;
+    const selCount = distinct.filter((v) => selectionHas(selectedSet, v)).length;
     const totalCount = distinct.length;
     const statusTxt = selCount === totalCount ? 'Todos' : `${selCount}/${totalCount}`;
 
@@ -648,16 +675,12 @@ function renderChartFieldZone(elId, field, kind) {
 // Applies ALL active filterSelected restrictions — for global filters (pivot.filters)
 // AND for dimension fields (rows/cols) filtered via the Excel Header menu.
 function getFilteredData() {
-  // Pre-compute which fields are actually restricting (not all selected)
   const activeFilters = Object.keys(state.filterSelected).filter((f) => {
     const sel = state.filterSelected[f];
-    if (!sel || sel.size === 0) return true; // size=0 means block all
-    const total = state._fieldDistinct && state._fieldDistinct[f];
-    // If we have no cache, conservatively apply
-    if (!total) return true;
-    // If sel covers all known distinct values, no restriction needed
-    if (sel.size >= total.size) return false;
-    return true;
+    if (!sel || sel.size === 0) return true;
+    const distinct = getDistinctValues(f);
+    // Sem restrição efetiva se todos os valores distintos estão selecionados
+    return !distinct.every((v) => selectionHas(sel, v));
   });
 
   if (!activeFilters.length) return state.data;
@@ -666,15 +689,10 @@ function getFilteredData() {
     for (const f of activeFilters) {
       const sel = state.filterSelected[f];
       if (!sel) continue;
-      if (sel.size === 0) return false; // nothing selected = block everything
+      if (sel.size === 0) return false;
 
-      // Normalize row value: empty/null → '(vazio)'
-      const rawVal = row[f];
-      const normVal = (rawVal === null || rawVal === undefined || rawVal === '') ? '(vazio)' : rawVal;
-
-      // Type-safe check: try native value first, then string form (handles localStorage restore)
-      const passes = sel.has(normVal) || sel.has(String(normVal));
-      if (!passes) return false;
+      const normVal = normalizeDimValue(row[f]);
+      if (!selectionHas(sel, normVal)) return false;
     }
     return true;
   });
@@ -715,7 +733,7 @@ function uniqueCombos(data, fields) {
   if (fields.length === 0) return [[]];
   const map = new Map();
   data.forEach((row) => {
-    const combo = fields.map(f => row[f] === null || row[f] === undefined || row[f] === '' ? '(vazio)' : row[f]);
+    const combo = fields.map(f => normalizeDimValue(row[f]));
     map.set(comboKey(combo), combo);
   });
   const combos = Array.from(map.values());
@@ -734,8 +752,8 @@ function buildPivotModel() {
 
   const buckets = new Map();
   data.forEach((row) => {
-    const rk = rowFields.map(f => row[f] === null || row[f] === undefined || row[f] === '' ? '(vazio)' : row[f]).join('\u0001');
-    const ck = colFields.map(f => row[f] === null || row[f] === undefined || row[f] === '' ? '(vazio)' : row[f]).join('\u0001');
+    const rk = rowFields.map(f => normalizeDimValue(row[f])).join('\u0001');
+    const ck = colFields.map(f => normalizeDimValue(row[f])).join('\u0001');
     const key = rk + '\u0002' + ck;
     if (!buckets.has(key)) buckets.set(key, []);
     buckets.get(key).push(row);
@@ -750,7 +768,7 @@ function buildPivotModel() {
       const v = r[valDef.field];
       return typeof v === 'number' ? v : (parseFloat(v) || 0);
     });
-    return AGGS[valDef.agg].fn(nums);
+    return AGGS[valDef.agg] ? AGGS[valDef.agg].fn(nums) : AGGS.sum.fn(nums);
   }
 
   return { data, rowFields, colFields, values, rowCombos, colCombos, cellAgg };
@@ -804,16 +822,17 @@ function openExcelHeaderMenu(field) {
     updateSortBtnStyles();
   };
 
-  const distinct = Array.from(new Set(state.data.map(r => r[field])))
-    .filter(v => v !== null && v !== undefined && v !== '');
+  const distinct = getDistinctValues(field);
 
-  if (isMonthField(field)) {
-    distinct.sort((a, b) => getMonthIndex(a) - getMonthIndex(b));
+  let currentSelected = new Set();
+  const previous = state.filterSelected[field];
+  if (previous) {
+    distinct.forEach((v) => {
+      if (selectionHas(previous, v)) currentSelected.add(v);
+    });
   } else {
-    distinct.sort((a, b) => ('' + a).localeCompare(('' + b), 'pt-BR', { numeric: true }));
+    distinct.forEach((v) => currentSelected.add(v));
   }
-
-  let currentSelected = new Set(state.filterSelected[field] || distinct);
 
   function renderValueItems() {
     listContainer.innerHTML = '';
@@ -832,10 +851,13 @@ function openExcelHeaderMenu(field) {
 
       const cb = document.createElement('input');
       cb.type = 'checkbox';
-      cb.checked = currentSelected.has(val);
+      cb.checked = selectionHas(currentSelected, val);
       cb.addEventListener('change', () => {
         if (cb.checked) currentSelected.add(val);
-        else currentSelected.delete(val);
+        else {
+          currentSelected.delete(val);
+          currentSelected.delete(String(val));
+        }
         counter.textContent = `${currentSelected.size}/${distinct.length}`;
       });
 
@@ -854,7 +876,7 @@ function openExcelHeaderMenu(field) {
   searchInput.oninput = renderValueItems;
 
   document.getElementById('btnExcelSelectAll').onclick = () => {
-    distinct.forEach(v => currentSelected.add(v));
+    currentSelected = new Set(distinct);
     renderValueItems();
   };
 
@@ -873,23 +895,18 @@ function openExcelHeaderMenu(field) {
   };
 
   btnApply.onclick = () => {
-    // Always persist alias
     const newAlias = renameInput.value.trim();
     if (newAlias) {
       state.fieldAliases[field] = newAlias;
     }
 
-    // Always persist sort direction
     state.fieldSortDirs[field] = currentSort;
 
-    // Ensure distinct cache is populated for this field
     if (!state._fieldDistinct) state._fieldDistinct = {};
     state._fieldDistinct[field] = new Set(distinct.map(String));
 
-    // Persist filter selection
     state.filterSelected[field] = new Set(currentSelected);
 
-    // Add to pivot.filters if filtering is active AND field is not already a row/col
     const isInDimension = state.pivot.rows.includes(field) || state.pivot.cols.includes(field);
     if (!isInDimension && !state.pivot.filters.includes(field) && currentSelected.size < distinct.length) {
       state.pivot.filters.push(field);
@@ -1137,7 +1154,7 @@ function renderMatrix() {
 
   colCombos.forEach((cc) => {
     values.forEach((v) => {
-      const allInCol = m.data.filter((r) => colFields.length ? colFields.every((f, i) => r[f] === cc[i]) : true);
+      const allInCol = m.data.filter((r) => colFields.length ? colFields.every((f, i) => dimValuesMatch(r[f], cc[i])) : true);
       const nums = allInCol.map(r => typeof r[v.field] === 'number' ? r[v.field] : (parseFloat(r[v.field]) || 0));
       const val = !v.field ? allInCol.length : AGGS[v.agg].fn(nums);
       const td = document.createElement('td');
@@ -1188,13 +1205,14 @@ function buildRowHierarchyTree(data, rowFields) {
     const map = new Map();
 
     rows.forEach((r) => {
-      const v = r[field] === null || r[field] === undefined || r[field] === '' ? '(vazio)' : r[field];
+      const v = normalizeDimValue(r[field]);
       if (!map.has(v)) map.set(v, []);
       map.get(v).push(r);
     });
 
-    const values = Array.from(map.keys());
-    sortCombos(values.map(v => [v]), [field]);
+    const sortedCombos = Array.from(map.keys()).map((v) => [v]);
+    sortCombos(sortedCombos, [field]);
+    const values = sortedCombos.map((c) => c[0]);
 
     return values.map((val) => {
       const groupRows = map.get(val);
@@ -1422,15 +1440,12 @@ function generateTableRowsFromTree(nodes, rowFields, colFields, colCombos, value
 function aggregateBucket(rows, colFields, colCombo, valDef) {
   const matched = rows.filter((r) => {
     if (!colFields.length) return true;
-    return colFields.every((f, i) => {
-      const v = r[f] === null || r[f] === undefined || r[f] === '' ? '(vazio)' : r[f];
-      return String(v) === String(colCombo[i]);
-    });
+    return colFields.every((f, i) => dimValuesMatch(r[f], colCombo[i]));
   });
 
   if (!valDef.field) return AGGS.count.fn(matched.map(() => 1));
   const nums = matched.map(r => typeof r[valDef.field] === 'number' ? r[valDef.field] : (parseFloat(r[valDef.field]) || 0));
-  return AGGS[valDef.agg].fn(nums);
+  return AGGS[valDef.agg] ? AGGS[valDef.agg].fn(nums) : AGGS.sum.fn(nums);
 }
 
 // TREE EXPAND/COLLAPSE TOOLBAR CONTROLS
@@ -1447,7 +1462,7 @@ if (btnCollapseAll) {
   btnCollapseAll.addEventListener('click', () => {
     state.pivot.rows.forEach((_, idx) => {
       state.data.forEach((r) => {
-        const key = state.pivot.rows.slice(0, idx + 1).map(f => r[f]).join('\u0001');
+        const key = state.pivot.rows.slice(0, idx + 1).map(f => normalizeDimValue(r[f])).join('\u0001');
         state.collapsedNodes.add(key);
       });
     });
@@ -1495,7 +1510,7 @@ function buildMatrixAOA(m, effectiveRowCombos) {
       });
     });
     values.forEach((v) => {
-      const allInRow = m.data.filter(r => rowFields.length ? rowFields.every((f, i) => r[f] === rc[i]) : true);
+      const allInRow = m.data.filter(r => rowFields.length ? rowFields.every((f, i) => dimValuesMatch(r[f], rc[i])) : true);
       const nums = allInRow.map(r => typeof r[v.field] === 'number' ? r[v.field] : (parseFloat(r[v.field]) || 0));
       const val = !v.field ? allInRow.length : AGGS[v.agg].fn(nums);
       line.push(Math.round(val * 100) / 100);
@@ -1531,7 +1546,7 @@ function renderChart() {
   const data = getFilteredData();
   const aggFn = AGGS[agg] ? AGGS[agg].fn : AGGS.sum.fn;
 
-  let xVals = Array.from(new Set(data.map(r => r[x] === null || r[x] === undefined ? '(vazio)' : r[x])));
+  let xVals = Array.from(new Set(data.map(r => normalizeDimValue(r[x]))));
 
   if (isMonthField(x)) {
     xVals.sort((a, b) => getMonthIndex(a) - getMonthIndex(b));
@@ -1543,10 +1558,10 @@ function renderChart() {
 
   let datasets = [];
   if (series) {
-    const sVals = Array.from(new Set(data.map(r => r[series] === null || r[series] === undefined ? '(vazio)' : r[series])));
+    const sVals = Array.from(new Set(data.map(r => normalizeDimValue(r[series]))));
     sVals.forEach((sv, i) => {
       const arr = xVals.map((xv) => {
-        const rows = data.filter(r => (r[x] ?? '(vazio)') === xv && (r[series] ?? '(vazio)') === sv);
+        const rows = data.filter(r => normalizeDimValue(r[x]) === xv && normalizeDimValue(r[series]) === sv);
         const nums = rows.map(r => typeof r[value] === 'number' ? r[value] : (parseFloat(r[value]) || 0));
         return nums.length ? aggFn(nums) : 0;
       });
@@ -1559,7 +1574,7 @@ function renderChart() {
     });
   } else {
     const arr = xVals.map((xv) => {
-      const rows = data.filter(r => (r[x] ?? '(vazio)') === xv);
+      const rows = data.filter(r => normalizeDimValue(r[x]) === xv);
       const nums = rows.map(r => typeof r[value] === 'number' ? r[value] : (parseFloat(r[value]) || 0));
       return nums.length ? aggFn(nums) : 0;
     });
