@@ -1,28 +1,23 @@
 /**
- * Handler único: todas as rotas /api/* são reescritas para cá.
+ * Catch-all obrigatório: /api/* → esta função.
  */
 import app from '../server/app.js';
 
 export const config = {
-  api: {
-    bodyParser: false,
-  },
+  api: { bodyParser: false },
   maxDuration: 30,
 };
 
 function buildRequest(req) {
   const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
   const proto = req.headers['x-forwarded-proto'] || 'https';
-  // Mantém o path original (/api/...)
   const url = `${proto}://${host}${req.url}`;
-
   const headers = new Headers();
   Object.entries(req.headers || {}).forEach(([key, value]) => {
-    if (value === undefined || value === null) return;
+    if (value == null) return;
     if (Array.isArray(value)) value.forEach((v) => headers.append(key, v));
     else headers.set(key, String(value));
   });
-
   const method = req.method || 'GET';
   const init = { method, headers };
   if (method !== 'GET' && method !== 'HEAD') {
