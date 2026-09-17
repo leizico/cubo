@@ -1,0 +1,1660 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cubo BI — Matriz Analítica</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#EAECF1;
+  --surface:#FFFFFF;
+  --surface-2:#F3F4F7;
+  --surface-sunken:#E6E8ED;
+  --border:#D6DAE2;
+  --border-strong:#B7BEC9;
+  --ink:#161B24;
+  --ink-dim:#5B6472;
+  --ink-faint:#8992A1;
+  --brand:#1B2740;
+  --brand-2:#243252;
+  --brand-ink:#EEF1F6;
+  --accent:#0E6E62;
+  --accent-strong:#0A554C;
+  --accent-ink:#FFFFFF;
+  --accent-soft:#DCEEEA;
+  --warn:#92400E;
+  --danger:#A3241D;
+  --font-display:'Space Grotesk', sans-serif;
+  --font-body:'IBM Plex Sans', sans-serif;
+  --font-mono:'IBM Plex Mono', monospace;
+  --radius-sm:5px;
+  --radius-md:8px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0A0D12;
+    --surface:#12161E;
+    --surface-2:#171C25;
+    --surface-sunken:#0D1117;
+    --border:#262E3A;
+    --border-strong:#37414F;
+    --ink:#E6E9EF;
+    --ink-dim:#8B94A5;
+    --ink-faint:#5C6675;
+    --brand:#0F141F;
+    --brand-2:#182238;
+    --brand-ink:#E6E9EF;
+    --accent:#2FA695;
+    --accent-strong:#4CC1AF;
+    --accent-ink:#06140F;
+    --accent-soft:#123430;
+    --warn:#C98A3D;
+    --danger:#D06A63;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0A0D12;
+  --surface:#12161E;
+  --surface-2:#171C25;
+  --surface-sunken:#0D1117;
+  --border:#262E3A;
+  --border-strong:#37414F;
+  --ink:#E6E9EF;
+  --ink-dim:#8B94A5;
+  --ink-faint:#5C6675;
+  --brand:#0F141F;
+  --brand-2:#182238;
+  --brand-ink:#E6E9EF;
+  --accent:#2FA695;
+  --accent-strong:#4CC1AF;
+  --accent-ink:#06140F;
+  --accent-soft:#123430;
+  --warn:#C98A3D;
+  --danger:#D06A63;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--font-body);
+  font-size:13.5px;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+::-webkit-scrollbar{height:11px;width:11px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:6px;border:2px solid var(--surface);}
+
+.app{
+  display:grid;
+  grid-template-columns: 296px 1fr;
+  grid-template-rows: auto auto 1fr;
+  min-height:100vh;
+}
+@media (max-width: 900px){
+  .app{grid-template-columns: 1fr;}
+  .sidebar{order:3;}
+  .main{order:2;}
+}
+
+/* ---------- app shell bar (dark structural strip) ---------- */
+.appbar{
+  grid-column:1/-1;
+  background:var(--brand);
+  color:var(--brand-ink);
+  display:flex;
+  align-items:center;
+  gap:14px;
+  padding:0 22px;
+  height:46px;
+  border-bottom:1px solid rgba(0,0,0,.25);
+}
+.appbar .brand{
+  font-family:var(--font-display);
+  font-weight:700;
+  font-size:15px;
+  letter-spacing:.3px;
+  display:flex;
+  align-items:center;
+  gap:9px;
+  white-space:nowrap;
+}
+.appbar .brand .mark{
+  width:20px;height:20px;
+  border-radius:4px;
+  background:linear-gradient(135deg, var(--accent), var(--accent-strong));
+  display:inline-block;
+  position:relative;
+  flex:none;
+}
+.appbar .brand .mark::before{
+  content:"";
+  position:absolute; inset:5px 5px 9px 5px;
+  border-left:2px solid rgba(255,255,255,.85);
+  border-bottom:2px solid rgba(255,255,255,.85);
+}
+.appbar .tagline{
+  font-family:var(--font-mono);
+  font-size:11px;
+  color:rgba(238,241,246,.55);
+  border-left:1px solid rgba(238,241,246,.18);
+  padding-left:14px;
+}
+.appbar .spacer{flex:1;}
+.appbar .status-pill{
+  font-family:var(--font-mono);
+  font-size:11.5px;
+  color:rgba(238,241,246,.75);
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:20px;
+  padding:5px 12px;
+  max-width:260px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.appbar .status-pill.live{color:var(--accent-strong);border-color:rgba(79,193,175,.4);}
+
+/* ---------- toolbar (light, second row) ---------- */
+.toolbar{
+  grid-column:1/-1;
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:12px 22px;
+  border-bottom:1px solid var(--border);
+  background:var(--surface);
+  flex-wrap:wrap;
+}
+.toolbar-group{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.toolbar-label{
+  font-family:var(--font-mono);
+  font-size:10.5px;
+  color:var(--ink-faint);
+  padding-right:2px;
+  white-space:nowrap;
+}
+.divider-v{
+  width:1px;height:26px;background:var(--border);flex:none;
+}
+.file-btn{
+  position:relative;
+  overflow:hidden;
+}
+.file-btn input[type=file]{
+  position:absolute;
+  inset:0;
+  opacity:0;
+  cursor:pointer;
+}
+select, button, .file-btn{
+  font-family:var(--font-body);
+  font-size:12.5px;
+  padding:7px 13px;
+  border-radius:var(--radius-sm);
+  border:1px solid var(--border-strong);
+  background:var(--surface);
+  color:var(--ink);
+  cursor:pointer;
+  transition:border-color .15s ease, background .15s ease, color .15s ease;
+  font-weight:500;
+}
+select:hover, button:hover:not(:disabled), .file-btn:hover{border-color:var(--accent);color:var(--accent-strong);}
+button.primary{
+  background:var(--accent);
+  color:var(--accent-ink);
+  border-color:var(--accent);
+  font-weight:600;
+}
+button.primary:hover:not(:disabled){background:var(--accent-strong);border-color:var(--accent-strong);color:var(--accent-ink);}
+button:disabled{opacity:.4;cursor:not-allowed;}
+/* segmented export cluster */
+.export-cluster{display:flex;border:1px solid var(--border-strong);border-radius:var(--radius-sm);overflow:hidden;}
+.export-cluster button{
+  border:none;border-radius:0;
+  border-right:1px solid var(--border);
+}
+.export-cluster button:last-child{border-right:none;}
+.export-cluster button:hover:not(:disabled){background:var(--surface-2);color:var(--accent-strong);}
+
+.dataset-name{
+  font-family:var(--font-mono);
+  font-size:11.5px;
+  color:var(--ink-dim);
+  padding:7px 11px;
+  border:1px dashed var(--border-strong);
+  border-radius:var(--radius-sm);
+  max-width:220px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  background:var(--surface-2);
+}
+.spacer{flex:1;}
+
+/* ---------- sidebar (field well) ---------- */
+.sidebar{
+  border-right:1px solid var(--border);
+  background:var(--surface-2);
+  padding:18px 16px 24px;
+  display:flex;
+  flex-direction:column;
+  gap:18px;
+  max-height:calc(100vh - 89px);
+  overflow-y:auto;
+  position:sticky;
+  top:89px;
+  align-self:start;
+}
+.rail-section{
+  border-left:2px solid var(--border-strong);
+  padding-left:10px;
+}
+.rail-section.is-active{border-left-color:var(--accent);}
+.sec-title{
+  font-family:var(--font-mono);
+  font-size:10.5px;
+  color:var(--ink-faint);
+  letter-spacing:.2px;
+  margin-bottom:8px;
+}
+.field-pool{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  min-height:36px;
+  padding:3px;
+  border-radius:var(--radius-md);
+}
+.field-pool.dragover, .dropzone.dragover{
+  background:var(--accent-soft);
+  outline:1.5px dashed var(--accent);
+  outline-offset:2px;
+}
+.chip{
+  font-family:var(--font-mono);
+  font-size:11.5px;
+  padding:5px 10px 5px 8px;
+  border-radius:5px;
+  background:var(--surface);
+  border:1px solid var(--border-strong);
+  cursor:grab;
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  user-select:none;
+  color:var(--ink);
+}
+.chip:hover{border-color:var(--accent);}
+.chip:active{cursor:grabbing;}
+.chip .type-dot{
+  width:6px;height:6px;border-radius:50%;
+  flex:none;
+}
+.type-dot.num{background:#2E7D32;}
+.type-dot.date{background:#B45309;}
+.type-dot.text{background:#5B6472;}
+
+.zone-block{display:flex;flex-direction:column;gap:7px;}
+.zone-label{
+  font-size:12.5px;
+  font-weight:600;
+  color:var(--ink);
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+  gap:6px;
+}
+.zone-hint{font-family:var(--font-mono);font-size:10px;color:var(--ink-faint);font-weight:400;}
+.dropzone{
+  min-height:40px;
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  background:var(--surface-sunken);
+  box-shadow:inset 0 1px 2px rgba(20,25,35,.05);
+  padding:6px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  align-content:flex-start;
+}
+.dropzone:empty::before{
+  content:"arraste um campo aqui";
+  font-family:var(--font-mono);
+  font-size:10.5px;
+  color:var(--ink-faint);
+  padding:6px 4px;
+}
+/* Áreas de soltar Linhas / Colunas / Valores embutidas direto na matriz */
+th.matrix-dropzone{
+  background:var(--surface-sunken) !important;
+  color:var(--ink) !important;
+  text-align:left !important;
+  vertical-align:top;
+  white-space:normal !important;
+  min-width:120px;
+  box-shadow:inset 0 1px 2px rgba(20,25,35,.06) !important;
+}
+th.matrix-dropzone.dragover{
+  outline:2px dashed var(--accent);
+  outline-offset:-2px;
+  background:var(--accent-soft) !important;
+}
+.dz-label{
+  font-family:var(--font-mono);
+  font-size:9.5px;
+  text-transform:uppercase;
+  letter-spacing:.4px;
+  color:var(--ink-faint);
+  margin-bottom:4px;
+}
+.dz-chips{
+  display:flex;
+  flex-wrap:wrap;
+  gap:4px;
+  align-content:flex-start;
+  min-height:22px;
+}
+.dz-chips:empty::before{
+  content:"+ arraste aqui";
+  font-family:var(--font-mono);
+  font-size:10px;
+  color:var(--ink-faint);
+}
+tr.control-row th{
+  border-bottom:2px solid var(--accent);
+}
+.zchip{
+  font-family:var(--font-mono);
+  font-size:11.5px;
+  padding:5px 6px 5px 9px;
+  border-radius:5px;
+  background:var(--surface);
+  border:1px solid var(--accent);
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  cursor:grab;
+  color:var(--ink);
+}
+.zchip button{
+  border:none;
+  background:none;
+  color:var(--ink-faint);
+  cursor:pointer;
+  font-size:12px;
+  padding:0 2px;
+  border-radius:4px;
+  line-height:1;
+}
+.zchip button:hover{color:var(--danger);}
+.zchip select{
+  font-family:var(--font-mono);
+  font-size:10.5px;
+  padding:2px 4px;
+  border-radius:4px;
+  border:1px solid var(--border);
+  background:var(--surface-2);
+}
+.filter-panel{
+  margin-top:2px;
+  border-top:1px dashed var(--border-strong);
+  padding-top:6px;
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+.filter-panel summary{
+  font-family:var(--font-mono);
+  font-size:10.5px;
+  color:var(--ink-dim);
+  cursor:pointer;
+}
+.filter-vals{
+  max-height:140px;
+  overflow-y:auto;
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  padding:6px 2px;
+}
+.filter-vals label{
+  font-size:12px;
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+
+.saved-cube-row{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  font-size:12px;
+  padding:6px 8px;
+  border-radius:var(--radius-sm);
+  border:1px solid var(--border);
+  background:var(--surface);
+}
+.saved-cube-row span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.saved-cube-row button{
+  border:none;background:none;color:var(--ink-faint);cursor:pointer;font-size:11.5px;
+  font-family:var(--font-mono);
+}
+.saved-cube-row button:hover{color:var(--accent-strong);}
+.saved-cube-row button.del:hover{color:var(--danger);}
+.empty-note{
+  font-family:var(--font-mono);
+  font-size:10.5px;
+  color:var(--ink-faint);
+}
+
+/* ---------- main ---------- */
+.main{padding:20px 26px 28px;display:flex;flex-direction:column;gap:14px;min-width:0;}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);}
+.tab{
+  padding:9px 18px;
+  font-family:var(--font-display);
+  font-weight:600;
+  font-size:13px;
+  color:var(--ink-dim);
+  cursor:pointer;
+  border-bottom:2px solid transparent;
+  margin-bottom:-1px;
+  transition:color .15s ease, border-color .15s ease;
+}
+.tab:hover{color:var(--ink);}
+.tab.active{color:var(--accent-strong);border-bottom-color:var(--accent);}
+
+.config-strip{
+  font-family:var(--font-mono);
+  font-size:11.5px;
+  color:var(--ink-dim);
+  background:var(--surface-2);
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  padding:8px 12px;
+  display:flex;
+  gap:18px;
+  flex-wrap:wrap;
+}
+.config-strip:empty{display:none;}
+.config-strip b{color:var(--ink);font-weight:600;}
+
+.empty-state{
+  border:1px dashed var(--border-strong);
+  border-radius:var(--radius-md);
+  padding:56px 24px;
+  text-align:center;
+  color:var(--ink-dim);
+  background:var(--surface);
+  font-size:13px;
+}
+.empty-state b{color:var(--ink);font-family:var(--font-display);display:block;font-size:16px;margin-bottom:6px;}
+
+.matrix-wrap{
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  background:var(--surface);
+  overflow:auto;
+  max-height:calc(100vh - 260px);
+}
+table.matrix{
+  border-collapse:collapse;
+  font-family:var(--font-mono);
+  font-size:12px;
+  min-width:100%;
+}
+table.matrix th, table.matrix td{
+  border:1px solid var(--border);
+  padding:6px 11px;
+  white-space:nowrap;
+}
+table.matrix thead th{
+  background:var(--brand);
+  color:var(--brand-ink);
+  border-color:var(--brand-2);
+  position:sticky;
+  top:0;
+  z-index:2;
+  font-weight:600;
+  text-align:center;
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+table.matrix tbody tr:nth-child(even) td, table.matrix tbody tr:nth-child(even) th{
+  background:var(--surface-2);
+}
+table.matrix tbody th{
+  background:var(--surface);
+  text-align:left;
+  font-weight:500;
+  position:sticky;
+  left:0;
+  z-index:1;
+  box-shadow: 1px 0 0 var(--border);
+}
+table.matrix tbody tr:nth-child(even) th{
+  box-shadow: 1px 0 0 var(--border);
+}
+table.matrix td.val{text-align:right;}
+table.matrix tr.total-row th, table.matrix tr.total-row td{
+  background:var(--accent-soft);
+  color:var(--ink);
+  font-weight:700;
+  border-top:2px solid var(--accent);
+}
+table.matrix td.total-col, table.matrix th.total-col{
+  background:var(--accent-soft);
+  font-weight:700;
+}
+
+.chart-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+.chart-area{
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  background:var(--surface);
+  padding:24px;
+  min-height:420px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.chart-area canvas{max-height:420px;}
+
+.section-row{display:flex;gap:18px;flex-wrap:wrap;}
+.section-row > .zone-block{flex:1;min-width:180px;}
+
+footer.note{
+  font-family:var(--font-mono);
+  font-size:11px;
+  color:var(--ink-faint);
+  padding:10px 14px;
+  line-height:1.65;
+  background:var(--surface-2);
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  margin-top:4px;
+}
+footer.note b{color:var(--ink-dim);}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="appbar">
+    <div class="brand"><span class="mark"></span>Cubo BI</div>
+    <span class="tagline">matriz analítica · olap em memória</span>
+    <div class="spacer"></div>
+    <span class="status-pill" id="datasetName">nenhum dado carregado</span>
+  </div>
+
+  <div class="toolbar">
+    <div class="toolbar-group">
+      <label class="file-btn">📂 Importar planilha
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
+      </label>
+      <select id="sheetSelect" style="display:none;"></select>
+    </div>
+    <div class="divider-v"></div>
+    <div class="spacer"></div>
+    <div class="toolbar-group">
+      <span class="toolbar-label">exportar</span>
+      <div class="export-cluster">
+        <button id="btnExportXlsx" disabled>XLSX</button>
+        <button id="btnExportXls" disabled>XLS</button>
+        <button id="btnExportPdf" disabled>PDF</button>
+      </div>
+    </div>
+    <div class="divider-v"></div>
+    <button id="btnSaveCube" class="primary" disabled>Salvar cubo</button>
+  </div>
+
+  <div class="sidebar">
+    <div class="rail-section">
+      <div class="sec-title">campos disponíveis</div>
+      <div class="field-pool" id="fieldPool"></div>
+    </div>
+
+    <div class="rail-section zone-block">
+      <div class="zone-label">Filtros <span class="zone-hint">restringe os dados</span></div>
+      <div class="dropzone" id="zoneFilters" data-zone="filters"></div>
+    </div>
+
+    <div class="rail-section">
+      <div class="sec-title">cubos salvos (neste navegador)</div>
+      <div id="savedCubesList" style="display:flex;flex-direction:column;gap:6px;"></div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="tabs">
+      <div class="tab active" data-tab="matrix">Matriz</div>
+      <div class="tab" data-tab="chart">Gráfico</div>
+    </div>
+
+    <div id="tabMatrix">
+      <div class="config-strip" id="matrixConfigStrip"></div>
+      <div id="matrixHost"><div class="empty-state"><b>Nenhum dado ainda</b>Importe uma planilha (.xlsx, .xls ou .csv). Depois arraste os campos direto para as áreas de Linhas, Colunas e Valores dentro da própria matriz.</div></div>
+    </div>
+
+    <div id="tabChart" style="display:none;">
+      <div class="section-row">
+        <div class="zone-block">
+          <div class="zone-label">Eixo X <span class="zone-hint">categoria</span></div>
+          <div class="dropzone" id="zoneChartX" data-zone="chartX"></div>
+        </div>
+        <div class="zone-block">
+          <div class="zone-label">Série <span class="zone-hint">agrupamento / cor</span></div>
+          <div class="dropzone" id="zoneChartSeries" data-zone="chartSeries"></div>
+        </div>
+        <div class="zone-block">
+          <div class="zone-label">Valor <span class="zone-hint">métrica</span></div>
+          <div class="dropzone" id="zoneChartValue" data-zone="chartValue"></div>
+        </div>
+        <div class="zone-block" style="max-width:160px;">
+          <div class="zone-label">Tipo</div>
+          <select id="chartType">
+            <option value="bar">Barras</option>
+            <option value="line">Linha</option>
+            <option value="pie">Pizza</option>
+          </select>
+        </div>
+      </div>
+      <div class="chart-toolbar">
+        <button id="btnExportChartPdf" disabled>⬇ Gráfico em PDF</button>
+        <button id="btnExportChartPng" disabled>⬇ Gráfico em PNG</button>
+      </div>
+      <div class="chart-area" id="chartArea">
+        <div class="empty-state"><b>Sem gráfico</b>Arraste um campo para Eixo X e um campo numérico para Valor.</div>
+      </div>
+    </div>
+
+    <footer class="note">
+      <b>Sobre os dados:</b> ficam apenas na memória deste navegador — nada é enviado a um servidor. Este cubo lê planilhas importadas (XLSX/XLS/CSV); conexão direta a um banco de dados SQL externo não é possível aqui porque o ambiente do artefato bloqueia requisições de rede para bancos de dados. Se precisar de conexão viva a um banco, isso exige um backend real (ex.: Claude Code com um serviço próprio, ou exportar o resultado da consulta SQL para planilha e importar aqui).
+    </footer>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+// ---------------- state ----------------
+const state = {
+  data: [],
+  fields: [],
+  fieldTypes: {},
+  workbook: null,
+  sheetNames: [],
+  activeSheet: null,
+  pivot: { filters: [], rows: [], cols: [], values: [] }, // values: [{field, agg}]
+  filterSelected: {}, // field -> Set of allowed values
+  chart: { x: null, series: null, value: null, agg: 'sum' },
+  chartInstance: null,
+  lastMatrixAOA: null // for export
+};
+
+const AGGS = {
+  sum: {label:'Soma', fn:(arr)=>arr.reduce((a,b)=>a+b,0)},
+  count: {label:'Contagem', fn:(arr)=>arr.length},
+  avg: {label:'Média', fn:(arr)=>arr.length? arr.reduce((a,b)=>a+b,0)/arr.length : 0},
+  min: {label:'Mínimo', fn:(arr)=>arr.length? Math.min(...arr) : 0},
+  max: {label:'Máximo', fn:(arr)=>arr.length? Math.max(...arr) : 0},
+};
+
+// ---------------- helpers ----------------
+function fmtNum(n){
+  if (n === null || n === undefined || isNaN(n)) return '';
+  const rounded = Math.round(n*100)/100;
+  return rounded.toLocaleString('pt-BR', {maximumFractionDigits:2});
+}
+function detectType(values){
+  let numCount=0, dateCount=0, total=0;
+  for (const v of values){
+    if (v===null||v===undefined||v==='') continue;
+    total++;
+    if (typeof v === 'number') numCount++;
+    else if (v instanceof Date) dateCount++;
+  }
+  if (total===0) return 'text';
+  if (dateCount/total > 0.6) return 'date';
+  if (numCount/total > 0.6) return 'num';
+  return 'text';
+}
+
+// ---------------- file import ----------------
+document.getElementById('fileInput').addEventListener('change', function(e){
+  const file = e.target.files[0];
+  if (!file) return;
+  document.getElementById('datasetName').textContent = 'lendo ' + file.name + '…';
+  const reader = new FileReader();
+  reader.onload = function(ev){
+    try {
+      const wb = XLSX.read(ev.target.result, {type:'array', cellDates:true});
+      state.workbook = wb;
+      state.sheetNames = wb.SheetNames;
+      const sel = document.getElementById('sheetSelect');
+      sel.innerHTML = wb.SheetNames.map(n=>`<option value="${n}">${n}</option>`).join('');
+      sel.style.display = wb.SheetNames.length > 1 ? 'inline-block' : 'none';
+      loadSheet(wb.SheetNames[0]);
+      document.getElementById('datasetName').textContent = file.name;
+    } catch(err){
+      alert('Não foi possível ler o arquivo: ' + err.message);
+      document.getElementById('datasetName').textContent = 'nenhum dado carregado';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+});
+document.getElementById('sheetSelect').addEventListener('change', function(e){
+  loadSheet(e.target.value);
+});
+
+function loadSheet(name){
+  state.activeSheet = name;
+  const ws = state.workbook.Sheets[name];
+  const rows = XLSX.utils.sheet_to_json(ws, {defval:null, raw:true});
+  state.data = rows;
+  state.fields = rows.length ? Object.keys(rows[0]) : [];
+  state.fieldTypes = {};
+  state.fields.forEach(f=>{
+    state.fieldTypes[f] = detectType(rows.map(r=>r[f]));
+  });
+  // reset pivot config on new dataset
+  state.pivot = {filters:[], rows:[], cols:[], values:[]};
+  state.filterSelected = {};
+  state.chart = {x:null, series:null, value:null, agg:'sum'};
+  renderFieldPool();
+  renderAllZones();
+  renderMatrix();
+  renderChart();
+  updateExportButtons();
+}
+
+// ---------------- drag & drop ----------------
+function renderFieldPool(){
+  const pool = document.getElementById('fieldPool');
+  pool.innerHTML = '';
+  const used = new Set([
+    ...state.pivot.filters, ...state.pivot.rows, ...state.pivot.cols,
+    ...state.pivot.values.map(v=>v.field)
+  ]);
+  state.fields.forEach(f=>{
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.draggable = true;
+    chip.dataset.field = f;
+    const dotClass = state.fieldTypes[f]==='num' ? 'num' : (state.fieldTypes[f]==='date' ? 'date' : 'text');
+    chip.innerHTML = `<span class="type-dot ${dotClass}"></span>${f}`;
+    if (used.has(f)) chip.style.opacity = '0.35';
+    chip.addEventListener('dragstart', e=>{
+      e.dataTransfer.setData('text/plain', JSON.stringify({field:f, from:'pool'}));
+    });
+    pool.appendChild(chip);
+  });
+}
+
+function setupDropzone(el, zoneKey){
+  el.addEventListener('dragover', e=>{ e.preventDefault(); el.classList.add('dragover'); });
+  el.addEventListener('dragleave', ()=> el.classList.remove('dragover'));
+  el.addEventListener('drop', e=>{
+    e.preventDefault();
+    el.classList.remove('dragover');
+    let payload;
+    try { payload = JSON.parse(e.dataTransfer.getData('text/plain')); } catch(err){ return; }
+    if (!payload || !payload.field) return;
+    handleDrop(zoneKey, payload.field);
+  });
+}
+['zoneFilters','zoneChartX','zoneChartSeries','zoneChartValue'].forEach(id=>{
+  const el = document.getElementById(id);
+  setupDropzone(el, el.dataset.zone);
+});
+// pool itself accepts drops back (to remove a field from a zone)
+setupDropzone(document.getElementById('fieldPool'), 'pool');
+
+// Linhas, Colunas e Valores agora são soltos direto na matriz. Como essas células
+// (com data-dropzone="rows|cols|values") são recriadas a cada renderMatrix(), usamos
+// delegação de eventos no container fixo #matrixHost em vez de um listener por célula.
+(function setupMatrixDropDelegation(){
+  const host = document.getElementById('matrixHost');
+  host.addEventListener('dragover', e=>{
+    const zone = e.target.closest('[data-dropzone]');
+    if (!zone) return;
+    e.preventDefault();
+    zone.classList.add('dragover');
+  });
+  host.addEventListener('dragleave', e=>{
+    const zone = e.target.closest('[data-dropzone]');
+    if (zone) zone.classList.remove('dragover');
+  });
+  host.addEventListener('drop', e=>{
+    const zone = e.target.closest('[data-dropzone]');
+    if (!zone) return;
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    let payload;
+    try { payload = JSON.parse(e.dataTransfer.getData('text/plain')); } catch(err){ return; }
+    if (!payload || !payload.field) return;
+    handleDrop(zone.dataset.dropzone, payload.field);
+  });
+})();
+
+// Filtros são independentes: um campo pode estar em Filtros e, ao mesmo tempo,
+// em Linhas, Colunas ou Valores. Linhas/Colunas/Valores continuam exclusivos entre si
+// (um campo só pode assumir um desses três papéis por vez).
+function removeFieldEverywhere(field, exceptZone, includeFilters){
+  if (exceptZone!=='rows') removeFrom(state.pivot.rows, field);
+  if (exceptZone!=='cols') removeFrom(state.pivot.cols, field);
+  if (includeFilters && exceptZone!=='filters'){
+    removeFrom(state.pivot.filters, field);
+    delete state.filterSelected[field];
+  }
+  if (exceptZone!=='values') state.pivot.values = state.pivot.values.filter(v=>v.field!==field);
+}
+function removeFrom(arr, field){
+  const i = arr.indexOf(field);
+  if (i>-1) arr.splice(i,1);
+}
+
+function handleDrop(zoneKey, field){
+  if (zoneKey==='pool'){
+    // soltar de volta no pool remove o campo de todos os lugares, incluindo filtros
+    removeFieldEverywhere(field, null, true);
+    state.chart.x = state.chart.x===field ? null : state.chart.x;
+    state.chart.series = state.chart.series===field ? null : state.chart.series;
+    state.chart.value = state.chart.value===field ? null : state.chart.value;
+    refreshAll(); return;
+  }
+  if (zoneKey==='rows'){ removeFieldEverywhere(field,'rows', false); if(!state.pivot.rows.includes(field)) state.pivot.rows.push(field); }
+  else if (zoneKey==='cols'){ removeFieldEverywhere(field,'cols', false); if(!state.pivot.cols.includes(field)) state.pivot.cols.push(field); }
+  else if (zoneKey==='filters'){
+    // não remove o campo de linhas/colunas/valores — filtro é adicional
+    if(!state.pivot.filters.includes(field)){ state.pivot.filters.push(field); initFilterValues(field); }
+  }
+  else if (zoneKey==='values'){
+    removeFieldEverywhere(field,'values', false);
+    if (!state.pivot.values.find(v=>v.field===field)){
+      const defAgg = state.fieldTypes[field]==='num' ? 'sum' : 'count';
+      state.pivot.values.push({field, agg:defAgg});
+    }
+  }
+  else if (zoneKey==='chartX'){ state.chart.x = field; }
+  else if (zoneKey==='chartSeries'){ state.chart.series = field; }
+  else if (zoneKey==='chartValue'){ state.chart.value = field; if(!state.chart.agg) state.chart.agg='sum'; }
+  refreshAll();
+}
+
+function refreshAll(){
+  renderFieldPool();
+  renderAllZones();
+  renderMatrix();
+  renderChart();
+  updateExportButtons();
+}
+
+function initFilterValues(field){
+  const distinct = Array.from(new Set(state.data.map(r=>r[field]))).filter(v=>v!==null && v!==undefined && v!=='');
+  state.filterSelected[field] = new Set(distinct);
+}
+
+// ---------------- render zones ----------------
+function renderAllZones(){
+  // Linhas, Colunas e Valores são renderizados dentro da própria matriz (ver renderMatrix).
+  renderFiltersZone();
+  renderChartFieldZone('zoneChartX', state.chart.x, 'chartX');
+  renderChartFieldZone('zoneChartSeries', state.chart.series, 'chartSeries');
+  renderChartFieldZone('zoneChartValue', state.chart.value, 'chartValue');
+}
+
+function makeRemoveBtn(onClick){
+  const b = document.createElement('button');
+  b.textContent = '✕';
+  b.title = 'remover';
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+function renderSimpleZone(elId, arr, kind){
+  const el = document.getElementById(elId);
+  el.innerHTML = '';
+  arr.forEach(field=>{
+    const chip = document.createElement('div');
+    chip.className = 'zchip';
+    chip.draggable = true;
+    chip.innerHTML = `<span>${field}</span>`;
+    chip.addEventListener('dragstart', e=>{
+      e.dataTransfer.setData('text/plain', JSON.stringify({field, from:kind}));
+    });
+    chip.appendChild(makeRemoveBtn(()=>{ removeFrom(arr, field); refreshAll(); }));
+    el.appendChild(chip);
+  });
+}
+
+function renderFiltersZone(){
+  const el = document.getElementById('zoneFilters');
+  el.innerHTML = '';
+  state.pivot.filters.forEach(field=>{
+    const wrap = document.createElement('div');
+    wrap.style.width = '100%';
+    const chip = document.createElement('div');
+    chip.className = 'zchip';
+    chip.draggable = true;
+    chip.style.width = 'fit-content';
+    chip.innerHTML = `<span>${field}</span>`;
+    chip.addEventListener('dragstart', e=>{
+      e.dataTransfer.setData('text/plain', JSON.stringify({field, from:'filters'}));
+    });
+    chip.appendChild(makeRemoveBtn(()=>{ removeFrom(state.pivot.filters, field); delete state.filterSelected[field]; refreshAll(); }));
+    wrap.appendChild(chip);
+
+    const details = document.createElement('details');
+    details.className = 'filter-panel';
+    const summary = document.createElement('summary');
+    const sel = state.filterSelected[field] || new Set();
+    const distinct = Array.from(new Set(state.data.map(r=>r[field]))).filter(v=>v!==null && v!==undefined && v!=='');
+    summary.textContent = `${sel.size}/${distinct.length} valores selecionados`;
+    details.appendChild(summary);
+    const box = document.createElement('div');
+    box.className = 'filter-vals';
+    distinct.sort(compareValues).forEach(v=>{
+      const label = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = sel.has(v);
+      cb.addEventListener('change', ()=>{
+        if (cb.checked) sel.add(v); else sel.delete(v);
+        state.filterSelected[field] = sel;
+        summary.textContent = `${sel.size}/${distinct.length} valores selecionados`;
+        renderMatrix(); renderChart();
+      });
+      label.appendChild(cb);
+      const txt = document.createElement('span');
+      txt.textContent = String(v);
+      label.appendChild(txt);
+      box.appendChild(label);
+    });
+    details.appendChild(box);
+    wrap.appendChild(details);
+    el.appendChild(wrap);
+  });
+}
+
+// Chips de Linhas/Colunas soltos direto dentro da célula-alvo na matriz (não mais na lateral).
+function renderMatrixFieldChips(container, arr, kind){
+  container.innerHTML = '';
+  arr.forEach(field=>{
+    const chip = document.createElement('span');
+    chip.className = 'zchip';
+    chip.draggable = true;
+    chip.innerHTML = `<span>${field}</span>`;
+    chip.addEventListener('dragstart', e=>{
+      e.dataTransfer.setData('text/plain', JSON.stringify({field, from:kind}));
+    });
+    chip.appendChild(makeRemoveBtn(e=>{ e.stopPropagation(); removeFrom(arr, field); refreshAll(); }));
+    container.appendChild(chip);
+  });
+}
+// Chips de Valores (com seletor de agregação) soltos direto na célula-alvo na matriz.
+function renderMatrixValueChips(container){
+  container.innerHTML = '';
+  state.pivot.values.forEach((v, idx)=>{
+    const chip = document.createElement('span');
+    chip.className = 'zchip';
+    chip.draggable = true;
+    chip.innerHTML = `<span>${v.field}</span>`;
+    chip.addEventListener('dragstart', e=>{
+      e.dataTransfer.setData('text/plain', JSON.stringify({field:v.field, from:'values'}));
+    });
+    const aggSel = document.createElement('select');
+    Object.keys(AGGS).forEach(k=>{
+      const o = document.createElement('option');
+      o.value = k; o.textContent = AGGS[k].label;
+      if (k===v.agg) o.selected = true;
+      aggSel.appendChild(o);
+    });
+    aggSel.addEventListener('click', e=> e.stopPropagation());
+    aggSel.addEventListener('change', ()=>{ v.agg = aggSel.value; renderMatrix(); });
+    chip.appendChild(aggSel);
+    chip.appendChild(makeRemoveBtn(e=>{ e.stopPropagation(); state.pivot.values.splice(idx,1); refreshAll(); }));
+    container.appendChild(chip);
+  });
+}
+
+function renderChartFieldZone(elId, field, kind){
+  const el = document.getElementById(elId);
+  el.innerHTML = '';
+  if (!field) return;
+  const chip = document.createElement('div');
+  chip.className = 'zchip';
+  chip.draggable = true;
+  chip.innerHTML = `<span>${field}</span>`;
+  chip.addEventListener('dragstart', e=>{
+    e.dataTransfer.setData('text/plain', JSON.stringify({field, from:kind}));
+  });
+  chip.appendChild(makeRemoveBtn(()=>{
+    if (kind==='chartX') state.chart.x=null;
+    if (kind==='chartSeries') state.chart.series=null;
+    if (kind==='chartValue') state.chart.value=null;
+    refreshAll();
+  }));
+  el.appendChild(chip);
+}
+
+// ---------------- filtered data ----------------
+function getFilteredData(){
+  return state.data.filter(row=>{
+    for (const f of state.pivot.filters){
+      const sel = state.filterSelected[f];
+      if (sel && sel.size>0 && !sel.has(row[f])) return false;
+    }
+    return true;
+  });
+}
+
+// ---------------- ordenação (com reconhecimento de meses) ----------------
+// Mapa de nomes de mês (PT e EN, completos e abreviados, sem acento) -> número do mês (1-12).
+// Assim "Janeiro, Fevereiro, Março..." ordena pelo calendário, e não em ordem alfabética.
+const MONTH_ORDER = {
+  'janeiro':1,'jan':1,'january':1,
+  'fevereiro':2,'fev':2,'february':2,'feb':2,
+  'marco':3,'mar':3,'march':3,
+  'abril':4,'abr':4,'april':4,'apr':4,
+  'maio':5,'mai':5,'may':5,
+  'junho':6,'jun':6,'june':6,
+  'julho':7,'jul':7,'july':7,
+  'agosto':8,'ago':8,'august':8,'aug':8,
+  'setembro':9,'set':9,'sep':9,'sept':9,'september':9,
+  'outubro':10,'out':10,'october':10,'oct':10,
+  'novembro':11,'nov':11,'november':11,
+  'dezembro':12,'dez':12,'december':12,'dec':12
+};
+function monthIndex(v){
+  if (v===null || v===undefined) return null;
+  const s = String(v).trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'') // remove acentos
+    .replace(/\.$/,''); // "jan." -> "jan"
+  return Object.prototype.hasOwnProperty.call(MONTH_ORDER, s) ? MONTH_ORDER[s] : null;
+}
+// Comparador geral: números por valor, meses pelo calendário, o resto por texto (pt-BR).
+function compareValues(a,b){
+  if (a===b) return 0;
+  if (typeof a==='number' && typeof b==='number') return a-b;
+  const am = monthIndex(a), bm = monthIndex(b);
+  if (am!==null && bm!==null) return am-bm;
+  return String(a).localeCompare(String(b), 'pt-BR', {numeric:true});
+}
+
+// ---------------- pivot computation ----------------
+function sortCombos(combos){
+  combos.sort((a,b)=>{
+    for (let i=0;i<a.length;i++){
+      const av = a[i], bv = b[i];
+      if (av===bv) continue;
+      return compareValues(av, bv);
+    }
+    return 0;
+  });
+}
+function comboKey(combo){ return combo.map(v=>String(v)).join('\u0001'); }
+
+function uniqueCombos(data, fields){
+  if (fields.length===0) return [[]];
+  const map = new Map();
+  data.forEach(row=>{
+    const combo = fields.map(f=> row[f]===null||row[f]===undefined||row[f]==='' ? '(vazio)' : row[f]);
+    map.set(comboKey(combo), combo);
+  });
+  const combos = Array.from(map.values());
+  sortCombos(combos);
+  return combos;
+}
+
+function rowMatchesCombo(row, fields, combo){
+  return fields.every((f,i)=>{
+    const v = row[f]===null||row[f]===undefined||row[f]==='' ? '(vazio)' : row[f];
+    return v === combo[i];
+  });
+}
+
+function sameTillLevel(a,b,level){
+  for (let k=0;k<=level;k++) if (a[k]!==b[k]) return false;
+  return true;
+}
+function getSpans(combos, level){
+  const spans = [];
+  let i=0;
+  while (i<combos.length){
+    let j=i+1;
+    while (j<combos.length && sameTillLevel(combos[j], combos[i], level)) j++;
+    spans.push({value: combos[i][level], span: j-i, start:i});
+    i=j;
+  }
+  return spans;
+}
+
+function buildPivotModel(){
+  const data = getFilteredData();
+  const rowFields = state.pivot.rows;
+  const colFields = state.pivot.cols;
+  const values = state.pivot.values.length ? state.pivot.values : [{field:null, agg:'count'}];
+
+  const rowCombos = uniqueCombos(data, rowFields);
+  const colCombos = uniqueCombos(data, colFields);
+
+  // pre-bucket data by row+col key for performance
+  const buckets = new Map();
+  data.forEach(row=>{
+    const rk = rowFields.map(f=> row[f]===null||row[f]===undefined||row[f]==='' ? '(vazio)':row[f]).join('\u0001');
+    const ck = colFields.map(f=> row[f]===null||row[f]===undefined||row[f]==='' ? '(vazio)':row[f]).join('\u0001');
+    const key = rk+'\u0002'+ck;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(row);
+  });
+
+  function cellAgg(rowCombo, colCombo, valDef){
+    const rk = rowCombo.join('\u0001');
+    const ck = colCombo.join('\u0001');
+    const bucket = buckets.get(rk+'\u0002'+ck) || [];
+    if (!valDef.field) return AGGS.count.fn(bucket.map(()=>1));
+    const nums = bucket.map(r=> {
+      const v = r[valDef.field];
+      return typeof v === 'number' ? v : (parseFloat(v)||0);
+    });
+    return AGGS[valDef.agg].fn(nums);
+  }
+
+  return {data, rowFields, colFields, values, rowCombos, colCombos, cellAgg};
+}
+
+// ---------------- render matrix ----------------
+function renderMatrix(){
+  const host = document.getElementById('matrixHost');
+  if (!state.data.length){
+    host.innerHTML = '<div class="empty-state"><b>Nenhum dado ainda</b>Importe uma planilha e arraste campos para montar a matriz.</div>';
+    state.lastMatrixAOA = null;
+    updateExportButtons();
+    return;
+  }
+  const m = buildPivotModel();
+  const {rowFields, colFields, values, rowCombos, colCombos, cellAgg} = m;
+
+  if (rowCombos.length===0 || colCombos.length===0){
+    host.innerHTML = '<div class="empty-state"><b>Sem resultados</b>Os filtros aplicados não retornaram nenhuma linha.</div>';
+    state.lastMatrixAOA = null;
+    updateExportButtons();
+    return;
+  }
+
+  const nRowLevels = Math.max(rowFields.length,1);
+  const nColLevels = colFields.length;
+  const nVals = values.length;
+
+  // ----- header rows -----
+  const theadRows = [];
+
+  // Linha de controle: os campos de Linhas e Colunas são soltos direto aqui, na própria
+  // matriz — não existe mais um painel lateral separado para isso.
+  function buildDropCell(kind, colSpan){
+    const th = document.createElement('th');
+    th.className = 'dropzone matrix-dropzone';
+    th.dataset.dropzone = kind;
+    th.colSpan = colSpan;
+    th.rowSpan = 1;
+    const label = document.createElement('div');
+    label.className = 'dz-label';
+    label.textContent = kind==='rows' ? 'Linhas' : (kind==='cols' ? 'Colunas' : 'Valores');
+    const chipsBox = document.createElement('div');
+    chipsBox.className = 'dz-chips';
+    th.appendChild(label);
+    th.appendChild(chipsBox);
+    return {th, chipsBox};
+  }
+  const controlRow = document.createElement('tr');
+  controlRow.className = 'control-row';
+  const rowsDrop = buildDropCell('rows', nRowLevels);
+  const colsDrop = buildDropCell('cols', colCombos.length*nVals + nVals);
+  controlRow.appendChild(rowsDrop.th);
+  controlRow.appendChild(colsDrop.th);
+  theadRows.push(controlRow);
+  renderMatrixFieldChips(rowsDrop.chipsBox, state.pivot.rows, 'rows');
+  renderMatrixFieldChips(colsDrop.chipsBox, state.pivot.cols, 'cols');
+
+  for (let lvl=0; lvl<nColLevels; lvl++){
+    const spans = getSpans(colCombos, lvl);
+    const tr = document.createElement('tr');
+    // corner cell (only on first col-header row, spanning all row-label columns and full height)
+    // — agora funciona como a área de soltar campos de Valores.
+    if (lvl===0){
+      const valDrop = buildDropCell('values', nRowLevels);
+      valDrop.th.rowSpan = nColLevels+1; // +1 para cobrir também a linha de rótulos de valor
+      tr.appendChild(valDrop.th);
+      renderMatrixValueChips(valDrop.chipsBox);
+    }
+    spans.forEach(sp=>{
+      const th = document.createElement('th');
+      th.colSpan = sp.span * nVals;
+      th.textContent = sp.value === '(vazio)' ? '(vazio)' : String(sp.value);
+      tr.appendChild(th);
+    });
+    // total column header(s) only on first level, rowspan full — uma célula por
+    // campo de valor, para não ambiguar quando há mais de uma métrica.
+    if (lvl===0){
+      values.forEach(v=>{
+        const th = document.createElement('th');
+        th.rowSpan = nColLevels+1;
+        th.className = 'total-col';
+        th.textContent = nVals>1 ? `Total ${v.field? AGGS[v.agg].label+' '+v.field : 'Contagem'}` : 'Total';
+        tr.appendChild(th);
+      });
+    }
+    theadRows.push(tr);
+  }
+  // value-label row
+  {
+    const tr = document.createElement('tr');
+    if (nColLevels===0){
+      const valDrop = buildDropCell('values', nRowLevels);
+      tr.appendChild(valDrop.th);
+      renderMatrixValueChips(valDrop.chipsBox);
+    }
+    colCombos.forEach(()=>{
+      values.forEach(v=>{
+        const th = document.createElement('th');
+        th.textContent = v.field ? `${AGGS[v.agg].label} de ${v.field}` : 'Contagem';
+        tr.appendChild(th);
+      });
+    });
+    if (nColLevels===0){
+      values.forEach(v=>{
+        const th = document.createElement('th');
+        th.className = 'total-col';
+        th.textContent = nVals>1 ? `Total ${v.field? AGGS[v.agg].label+' '+v.field : 'Contagem'}` : 'Total';
+        tr.appendChild(th);
+      });
+    }
+    theadRows.push(tr);
+  }
+
+  // ----- body rows -----
+  const tbodyRows = [];
+  const rowFieldsForHeader = rowFields.length ? rowFields : ['Total'];
+  const effectiveRowCombos = rowFields.length ? rowCombos : [['Total']];
+
+  effectiveRowCombos.forEach((rc, rIdx)=>{
+    const tr = document.createElement('tr');
+    for (let lvl=0; lvl<nRowLevels; lvl++){
+      const spans = getSpans(effectiveRowCombos, lvl);
+      const sp = spans.find(s=> rIdx>=s.start && rIdx<s.start+s.span);
+      if (sp && sp.start===rIdx){
+        const th = document.createElement('th');
+        th.rowSpan = sp.span;
+        th.textContent = sp.value==='(vazio)' ? '(vazio)' : String(sp.value);
+        tr.appendChild(th);
+      }
+    }
+    let rowTotal = {};
+    colCombos.forEach(cc=>{
+      values.forEach(v=>{
+        const val = rowFields.length ? cellAgg(rc, cc, v) : cellAgg([], cc, v);
+        rowTotal[v.field||'_count'] = (rowTotal[v.field||'_count']||0) + (v.agg==='avg'? 0 : val);
+        const td = document.createElement('td');
+        td.className = 'val';
+        td.textContent = fmtNum(val);
+        tr.appendChild(td);
+      });
+    });
+    // row grand total per value field (recompute properly via aggregation across all cols combined)
+    values.forEach(v=>{
+      const rk = rowFields.length ? rc : [];
+      const rkKey = rk.join('\u0001');
+      const allInRow = m.data.filter(r=> rowFields.length ? rowMatchesCombo(r, rowFields, rc) : true).filter(r=>{
+        // still respect column combos existing (already filtered) - just all rows matching row combo
+        return true;
+      });
+      let val;
+      if (!v.field){ val = allInRow.length; }
+      else {
+        const nums = allInRow.map(r=> typeof r[v.field]==='number' ? r[v.field] : (parseFloat(r[v.field])||0));
+        val = AGGS[v.agg].fn(nums);
+      }
+      const td = document.createElement('td');
+      td.className = 'val total-col';
+      td.textContent = fmtNum(val);
+      tr.appendChild(td);
+    });
+    tbodyRows.push(tr);
+  });
+
+  // grand total row
+  const totalTr = document.createElement('tr');
+  totalTr.className = 'total-row';
+  const th0 = document.createElement('th');
+  th0.colSpan = nRowLevels;
+  th0.textContent = 'Total geral';
+  totalTr.appendChild(th0);
+  colCombos.forEach(cc=>{
+    values.forEach(v=>{
+      const allInCol = m.data.filter(r=> colFields.length ? rowMatchesCombo(r, colFields, cc) : true);
+      let val;
+      if (!v.field){ val = allInCol.length; }
+      else {
+        const nums = allInCol.map(r=> typeof r[v.field]==='number' ? r[v.field] : (parseFloat(r[v.field])||0));
+        val = AGGS[v.agg].fn(nums);
+      }
+      const td = document.createElement('td');
+      td.className = 'val';
+      td.textContent = fmtNum(val);
+      totalTr.appendChild(td);
+    });
+  });
+  values.forEach(v=>{
+    let val;
+    if (!v.field){ val = m.data.length; }
+    else {
+      const nums = m.data.map(r=> typeof r[v.field]==='number' ? r[v.field] : (parseFloat(r[v.field])||0));
+      val = AGGS[v.agg].fn(nums);
+    }
+    const td = document.createElement('td');
+    td.className = 'val total-col';
+    td.textContent = fmtNum(val);
+    totalTr.appendChild(td);
+  });
+
+  // assemble table
+  const table = document.createElement('table');
+  table.className = 'matrix';
+  const thead = document.createElement('thead');
+  theadRows.forEach(r=>thead.appendChild(r));
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  tbodyRows.forEach(r=>tbody.appendChild(r));
+  tbody.appendChild(totalTr);
+  table.appendChild(tbody);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'matrix-wrap';
+  wrap.appendChild(table);
+  host.innerHTML = '';
+  host.appendChild(wrap);
+
+  // Com a nova linha de controle (Linhas/Colunas), o cabeçalho passou a ter várias
+  // linhas empilhadas. Cada célula precisa colar (sticky) na altura acumulada das
+  // linhas anteriores, e não em top:0 para todas — senão elas se sobrepõem ao rolar.
+  let stickyOffset = 0;
+  Array.from(thead.rows).forEach(row=>{
+    Array.from(row.cells).forEach(cell=>{ cell.style.top = stickyOffset + 'px'; });
+    stickyOffset += row.offsetHeight;
+  });
+
+  buildMatrixAOA(m, effectiveRowCombos, rowFieldsForHeader);
+  updateExportButtons();
+}
+
+// build a flat array-of-arrays version (for xlsx/pdf export) using flattened labels
+function buildMatrixAOA(m, effectiveRowCombos, rowFieldsForHeader){
+  const {rowFields, colFields, values, colCombos, cellAgg} = m;
+  const header = [...rowFields.length? rowFields : ['(sem linha)']];
+  const colLabels = colCombos.map(cc=> colFields.length ? cc.join(' / ') : 'Total');
+  colLabels.forEach(cl=>{
+    values.forEach(v=> header.push(`${cl} — ${v.field? AGGS[v.agg].label+' de '+v.field : 'Contagem'}`));
+  });
+  values.forEach(v=> header.push(`Total — ${v.field? AGGS[v.agg].label+' de '+v.field : 'Contagem'}`));
+
+  const aoa = [header];
+  effectiveRowCombos.forEach(rc=>{
+    const line = [ rowFields.length ? rc.join(' / ') : 'Total' ];
+    colCombos.forEach(cc=>{
+      values.forEach(v=>{
+        const val = rowFields.length ? cellAgg(rc, cc, v) : cellAgg([], cc, v);
+        line.push(Math.round(val*100)/100);
+      });
+    });
+    values.forEach(v=>{
+      const allInRow = m.data.filter(r=> rowFields.length ? rowMatchesCombo(r, rowFields, rc) : true);
+      let val = !v.field ? allInRow.length : AGGS[v.agg].fn(allInRow.map(r=> typeof r[v.field]==='number'?r[v.field]:(parseFloat(r[v.field])||0)));
+      line.push(Math.round(val*100)/100);
+    });
+    aoa.push(line);
+  });
+  // grand total line
+  const totalLine = ['Total geral'];
+  colCombos.forEach(cc=>{
+    values.forEach(v=>{
+      const allInCol = m.data.filter(r=> colFields.length ? rowMatchesCombo(r, colFields, cc) : true);
+      let val = !v.field ? allInCol.length : AGGS[v.agg].fn(allInCol.map(r=> typeof r[v.field]==='number'?r[v.field]:(parseFloat(r[v.field])||0)));
+      totalLine.push(Math.round(val*100)/100);
+    });
+  });
+  values.forEach(v=>{
+    let val = !v.field ? m.data.length : AGGS[v.agg].fn(m.data.map(r=> typeof r[v.field]==='number'?r[v.field]:(parseFloat(r[v.field])||0)));
+    totalLine.push(Math.round(val*100)/100);
+  });
+  aoa.push(totalLine);
+  state.lastMatrixAOA = aoa;
+}
+
+// ---------------- chart ----------------
+function renderChart(){
+  const area = document.getElementById('chartArea');
+  const {x, series, value, agg} = state.chart;
+  if (!state.data.length || !x || !value){
+    area.innerHTML = '<div class="empty-state"><b>Sem gráfico</b>Arraste um campo para Eixo X e um campo numérico para Valor.</div>';
+    if (state.chartInstance){ state.chartInstance.destroy(); state.chartInstance=null; }
+    document.getElementById('btnExportChartPdf').disabled = true;
+    document.getElementById('btnExportChartPng').disabled = true;
+    return;
+  }
+  const data = getFilteredData();
+  const aggFn = AGGS[agg] ? AGGS[agg].fn : AGGS.sum.fn;
+
+  const xVals = Array.from(new Set(data.map(r=> r[x]===null||r[x]===undefined?'(vazio)':r[x])));
+  xVals.sort(compareValues);
+
+  let datasets = [];
+  const palette = ['#1C7C74','#B45309','#3B5BA9','#B3261E','#5B8C3A','#7A5FBF','#C2410C','#0E7490'];
+
+  if (series){
+    const sVals = Array.from(new Set(data.map(r=> r[series]===null||r[series]===undefined?'(vazio)':r[series])));
+    sVals.sort(compareValues);
+    sVals.forEach((sv, i)=>{
+      const arr = xVals.map(xv=>{
+        const rows = data.filter(r=> (r[x]??'(vazio)')===xv && (r[series]??'(vazio)')===sv);
+        const nums = rows.map(r=> typeof r[value]==='number'?r[value]:(parseFloat(r[value])||0));
+        return nums.length? aggFn(nums) : 0;
+      });
+      datasets.push({label:String(sv), data:arr, backgroundColor: palette[i%palette.length], borderColor: palette[i%palette.length]});
+    });
+  } else {
+    const arr = xVals.map(xv=>{
+      const rows = data.filter(r=> (r[x]??'(vazio)')===xv);
+      const nums = rows.map(r=> typeof r[value]==='number'?r[value]:(parseFloat(r[value])||0));
+      return nums.length? aggFn(nums) : 0;
+    });
+    datasets.push({
+      label: `${AGGS[agg]?AGGS[agg].label:'Soma'} de ${value}`,
+      data: arr,
+      backgroundColor: xVals.map((_,i)=>palette[i%palette.length]),
+      borderColor: palette[0]
+    });
+  }
+
+  area.innerHTML = '<canvas id="chartCanvas"></canvas>';
+  const ctx = document.getElementById('chartCanvas').getContext('2d');
+  if (state.chartInstance) state.chartInstance.destroy();
+  const type = document.getElementById('chartType').value;
+  state.chartInstance = new Chart(ctx, {
+    type: type,
+    data: { labels: xVals.map(String), datasets },
+    options: {
+      responsive:true,
+      plugins:{ legend:{display: !!series || type==='pie'} },
+      scales: type==='pie' ? {} : { y:{beginAtZero:true} }
+    }
+  });
+  document.getElementById('btnExportChartPdf').disabled = false;
+  document.getElementById('btnExportChartPng').disabled = false;
+}
+document.getElementById('chartType').addEventListener('change', renderChart);
+
+// ---------------- tabs ----------------
+document.querySelectorAll('.tab').forEach(tab=>{
+  tab.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tabMatrix').style.display = tab.dataset.tab==='matrix' ? '' : 'none';
+    document.getElementById('tabChart').style.display = tab.dataset.tab==='chart' ? '' : 'none';
+  });
+});
+
+// ---------------- exports ----------------
+function updateExportButtons(){
+  const has = !!state.lastMatrixAOA;
+  document.getElementById('btnExportXlsx').disabled = !has;
+  document.getElementById('btnExportXls').disabled = !has;
+  document.getElementById('btnExportPdf').disabled = !has;
+  document.getElementById('btnSaveCube').disabled = !state.data.length;
+}
+
+function exportMatrix(bookType){
+  if (!state.lastMatrixAOA) return;
+  const ws = XLSX.utils.aoa_to_sheet(state.lastMatrixAOA);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Cubo');
+  const ext = bookType==='xls' ? 'xls' : 'xlsx';
+  XLSX.writeFile(wb, `cubo_bi.${ext}`, {bookType: bookType==='xls'?'biff8':'xlsx'});
+}
+document.getElementById('btnExportXlsx').addEventListener('click', ()=>exportMatrix('xlsx'));
+document.getElementById('btnExportXls').addEventListener('click', ()=>exportMatrix('xls'));
+
+document.getElementById('btnExportPdf').addEventListener('click', ()=>{
+  if (!state.lastMatrixAOA) return;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({orientation:'landscape'});
+  doc.setFontSize(14);
+  doc.text('Cubo BI — Matriz analítica', 14, 14);
+  doc.setFontSize(9);
+  doc.text(`Base: ${state.activeSheet || ''}  ·  Gerado em ${new Date().toLocaleString('pt-BR')}`, 14, 20);
+  const [head, ...body] = state.lastMatrixAOA;
+  doc.autoTable({
+    head:[head],
+    body: body,
+    startY: 26,
+    styles:{fontSize:7, cellPadding:2},
+    headStyles:{fillColor:[28,124,116], textColor:255},
+    theme:'grid'
+  });
+  doc.save('cubo_bi.pdf');
+});
+
+document.getElementById('btnExportChartPng').addEventListener('click', ()=>{
+  const canvas = document.getElementById('chartCanvas');
+  if (!canvas) return;
+  const a = document.createElement('a');
+  a.href = canvas.toDataURL('image/png');
+  a.download = 'grafico_cubo_bi.png';
+  a.click();
+});
+document.getElementById('btnExportChartPdf').addEventListener('click', ()=>{
+  const canvas = document.getElementById('chartCanvas');
+  if (!canvas) return;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({orientation:'landscape'});
+  doc.setFontSize(14);
+  doc.text('Cubo BI — Gráfico', 14, 16);
+  const img = canvas.toDataURL('image/png');
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const w = pageWidth - 28;
+  const h = w * (canvas.height/canvas.width);
+  doc.addImage(img, 'PNG', 14, 24, w, h);
+  doc.save('grafico_cubo_bi.pdf');
+});
+
+// ---------------- saved cubes (localStorage, per-viewer only) ----------------
+const LS_KEY = 'cubo_bi_saved_cubes_v1';
+function loadSavedCubes(){
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch(e){ return []; }
+}
+function persistSavedCubes(list){
+  try { localStorage.setItem(LS_KEY, JSON.stringify(list)); } catch(e){}
+}
+function renderSavedCubes(){
+  const list = loadSavedCubes();
+  const host = document.getElementById('savedCubesList');
+  host.innerHTML = '';
+  if (!list.length){
+    host.innerHTML = '<div style="font-family:var(--font-mono);font-size:11px;color:var(--ink-dim);">nenhum cubo salvo</div>';
+    return;
+  }
+  list.forEach((item, idx)=>{
+    const row = document.createElement('div');
+    row.className = 'saved-cube-row';
+    row.innerHTML = `<span>${item.name}</span>`;
+    const loadBtn = document.createElement('button');
+    loadBtn.textContent = 'abrir';
+    loadBtn.addEventListener('click', ()=> applySavedCube(item));
+    const delBtn = document.createElement('button');
+    delBtn.className = 'del';
+    delBtn.textContent = 'excluir';
+    delBtn.addEventListener('click', ()=>{
+      const l = loadSavedCubes();
+      l.splice(idx,1);
+      persistSavedCubes(l);
+      renderSavedCubes();
+    });
+    row.appendChild(loadBtn);
+    row.appendChild(delBtn);
+    host.appendChild(row);
+  });
+}
+function applySavedCube(item){
+  if (!state.fields.length){
+    alert('Importe uma planilha antes de abrir um cubo salvo.');
+    return;
+  }
+  const validField = f => state.fields.includes(f);
+  state.pivot.rows = (item.pivot.rows||[]).filter(validField);
+  state.pivot.cols = (item.pivot.cols||[]).filter(validField);
+  state.pivot.filters = (item.pivot.filters||[]).filter(validField);
+  state.pivot.values = (item.pivot.values||[]).filter(v=>validField(v.field));
+  state.pivot.filters.forEach(f=> initFilterValues(f));
+  state.chart = item.chart && item.chart.x && validField(item.chart.x) ? item.chart : {x:null,series:null,value:null,agg:'sum'};
+  if (state.chart.series && !validField(state.chart.series)) state.chart.series=null;
+  if (state.chart.value && !validField(state.chart.value)) state.chart.value=null;
+  document.getElementById('chartType').value = item.chartType || 'bar';
+  refreshAll();
+}
+document.getElementById('btnSaveCube').addEventListener('click', ()=>{
+  const name = prompt('Nome deste cubo:', `Cubo ${new Date().toLocaleString('pt-BR')}`);
+  if (!name) return;
+  const list = loadSavedCubes();
+  list.push({
+    name,
+    pivot: JSON.parse(JSON.stringify(state.pivot)),
+    chart: JSON.parse(JSON.stringify(state.chart)),
+    chartType: document.getElementById('chartType').value,
+    savedAt: Date.now()
+  });
+  persistSavedCubes(list);
+  renderSavedCubes();
+});
+
+renderSavedCubes();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bi(Cubo) Enterprise — Matriz Analítica & BI OLAP</title>
+  <meta name="description" content="Plataforma de análise bi-cubo em matriz multinível com drag-and-drop, ordenação cronológica de meses, gráficos dinâmicos e relatórios corporativos em PDF e XLSX." />
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+  
+  <!-- Styling -->
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Libraries CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.1/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <!-- AUTH MODAL -->
+  <div id="loginModal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="brand-logo">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+          </svg>
+          <span>BI(CUBO) ENTERPRISE</span>
+        </div>
+        <h3>Acesso ao Portal Corporativo</h3>
+        <p>Insira suas credenciais para acessar o ambiente de análise multidimensional.</p>
+      </div>
+      <form id="loginForm" onsubmit="return false;">
+        <div class="form-group">
+          <label for="inputUser">Usuário / Email</label>
+          <input type="text" id="inputUser" value="admin" placeholder="Digite seu usuário" required />
+        </div>
+        <div class="form-group">
+          <label for="inputPass">Senha</label>
+          <input type="password" id="inputPass" value="admin" placeholder="Digite sua senha" required />
+        </div>
+        <div class="form-actions">
+          <button type="submit" id="submitLoginBtn" class="btn btn-primary btn-block">
+            <span>Entrar no Sistema</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- SQL CONSOLE MODAL -->
+  <div id="sqlModal" class="modal-overlay hidden">
+    <div class="modal-card modal-large">
+      <div class="modal-header flex-between">
+        <div>
+          <h3>Console SQL & Banco de Dados</h3>
+          <p>Execute consultas SQL personalizadas ou conecte a uma fonte de dados.</p>
+        </div>
+        <button id="closeSqlBtn" class="btn-icon">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="sql-preset-bar">
+          <label>Query Pré-definida:</label>
+          <select id="sqlPresets">
+            <option value="all">SELECT * FROM Vendas_Empresariais</option>
+            <option value="summary">SELECT Mês, Família, SUM(Faturamento) AS Total FROM Vendas GROUP BY Mês, Família</option>
+            <option value="top_items">SELECT Descrição_Item, Segmento, Região, SUM(Faturamento), AVG(Margem) FROM Vendas GROUP BY Item</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Editor SQL</label>
+          <textarea id="sqlQueryText" rows="6" class="code-editor">SELECT Mês, Família, Descrição_Item, Segmento, Região, Vendedor, Faturamento, Quantidade, Margem FROM Vendas_Empresariais WHERE Ano = 2026 ORDER BY Mês ASC;</textarea>
+        </div>
+        <div id="sqlStatusMessage" class="status-msg info">Pronto para execução em memória.</div>
+      </div>
+      <div class="modal-footer">
+        <button id="btnRunSql" class="btn btn-primary">⚡ Executar Consulta SQL</button>
+        <button id="btnCancelSql" class="btn btn-secondary">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- FIELD FILTER VALUES MODAL -->
+  <div id="filterModal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header flex-between">
+        <div>
+          <h3 id="filterModalTitle">Filtrar Campo</h3>
+          <p id="filterModalSub">Selecione os valores a serem incluídos na análise.</p>
+        </div>
+        <button id="closeFilterBtn" class="btn-icon">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="search-box" style="margin-bottom: 0.75rem;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <input type="text" id="filterValSearch" placeholder="Buscar valor..." />
+        </div>
+        <div class="filter-actions-bar">
+          <div style="display: flex; gap: 0.35rem;">
+            <button id="btnSelectAllFilter" class="btn btn-xs btn-outline" style="color: var(--color-primary); border-color: var(--border-color-dark);">Marcar Todos</button>
+            <button id="btnDeselectAllFilter" class="btn btn-xs btn-outline" style="color: var(--color-text-muted); border-color: var(--border-color-dark);">Desmarcar Todos</button>
+          </div>
+          <span id="filterSelectionCounter" class="filter-counter">0/0 Selecionados</span>
+        </div>
+        <div id="filterValuesList" class="filter-values-list"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="btnApplyFilter" class="btn btn-primary btn-block">Aplicar Filtro</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- EXCEL HEADER FILTER & RENAME POPOVER MODAL -->
+  <div id="excelHeaderMenuModal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header flex-between">
+        <div>
+          <h3 id="excelMenuFieldTitle">Filtro de Campo</h3>
+          <p id="excelMenuFieldSub">Opções de ordenação, renomeação e filtragem estilo Excel.</p>
+        </div>
+        <button id="closeExcelMenuBtn" class="btn-icon">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- RENAME ALIAS SECTION -->
+        <div class="form-group" style="margin-bottom: 1rem; background: var(--bg-surface-secondary); padding: 0.75rem; border-radius: 6px; border: 1px solid var(--border-color);">
+          <label style="font-size: 0.75rem; color: var(--color-primary); font-weight: 600;">✏️ Renomear Rótulo do Campo (Alias)</label>
+          <div style="display: flex; gap: 0.4rem; margin-top: 0.35rem;">
+            <input type="text" id="excelRenameInput" placeholder="Novo nome do rótulo..." />
+            <button id="btnSaveAlias" class="btn btn-xs btn-primary">Salvar Rótulo</button>
+          </div>
+        </div>
+
+        <!-- SORT OPTIONS SECTION -->
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label style="font-size: 0.75rem; font-weight: 600;">📊 Ordenação da Dimensão</label>
+          <div style="display: flex; gap: 0.5rem; margin-top: 0.35rem;">
+            <button id="btnSortAsc" class="btn btn-xs btn-outline flex-1" style="color: var(--color-text-main); border-color: var(--border-color-dark);">
+              <span>🔼 Crescente (A-Z / 1-9)</span>
+            </button>
+            <button id="btnSortDesc" class="btn btn-xs btn-outline flex-1" style="color: var(--color-text-main); border-color: var(--border-color-dark);">
+              <span>🔽 Decrescente (Z-A / 9-1)</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- FILTER VALUES SECTION -->
+        <div class="form-group">
+          <label style="font-size: 0.75rem; font-weight: 600;">🔍 AutoFiltro de Valores (Estilo Excel)</label>
+          <div class="search-box" style="margin-top: 0.35rem; margin-bottom: 0.5rem;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="excelFilterSearch" placeholder="Pesquisar itens..." />
+          </div>
+          <div class="filter-actions-bar">
+            <div style="display: flex; gap: 0.35rem;">
+              <button id="btnExcelSelectAll" class="btn btn-xs btn-outline" style="color: var(--color-primary); border-color: var(--border-color-dark);">(Selecionar Tudo)</button>
+              <button id="btnExcelDeselectAll" class="btn btn-xs btn-outline" style="color: var(--color-text-muted); border-color: var(--border-color-dark);">(Limpar)</button>
+            </div>
+            <span id="excelFilterCounter" class="filter-counter">0/0</span>
+          </div>
+          <div id="excelFilterValuesList" class="filter-values-list"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btnApplyExcelMenu" class="btn btn-primary btn-block">Aplicar Filtros e Alterações</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN APP LAYOUT -->
+  <div class="app-layout">
+    
+    <!-- TOP NAVIGATION BAR -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <button id="btnMobileToggleSidebar" class="btn btn-icon mobile-only-inline" title="Abrir painel de campos e dimensões">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+        </button>
+        <div class="brand">
+          <div class="brand-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+              <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+              <line x1="12" y1="22.08" x2="12" y2="12"></line>
+            </svg>
+          </div>
+          <div class="brand-text">
+            <span class="title">Bi(Cubo) Enterprise</span>
+            <span class="subtitle">Análise Matricial & OLAP Multidimensionais</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <!-- Data Sources -->
+        <label class="btn btn-secondary file-upload-btn" title="Importar arquivo Excel (.xlsx, .xls) ou CSV">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+          <span>Importar Excel / CSV</span>
+          <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" />
+        </label>
+
+        <button id="btnOpenSqlModal" class="btn btn-secondary" title="Consulta SQL ao Banco de Dados">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+          <span>Consulta SQL</span>
+        </button>
+
+        <button id="btnLoadDemo" class="btn btn-accent" title="Carregar base de dados de demonstração empresarial">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+          <span>Demo Empresarial</span>
+        </button>
+
+        <select id="sheetSelect" class="sheet-select hidden" title="Selecionar Aba"></select>
+
+        <div class="divider"></div>
+
+        <!-- Export Buttons -->
+        <div class="export-group">
+          <button id="btnExportXlsx" class="btn btn-outline" disabled title="Exportar Matriz para XLSX (Excel)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+            <span>.XLSX</span>
+          </button>
+
+          <button id="btnExportXls" class="btn btn-outline" disabled title="Exportar Matriz para XLS">
+            <span>.XLS</span>
+          </button>
+
+          <button id="btnExportPdf" class="btn btn-outline" disabled title="Exportar Relatório Formatado em PDF">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+            <span>PDF</span>
+          </button>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- User Profile & Theme -->
+        <div class="user-badge" id="userBadge">
+          <span class="avatar">AD</span>
+          <span class="name" id="userNameLabel">Admin Analista</span>
+        </div>
+
+        <button id="btnLogout" class="btn btn-icon" title="Sair do sistema">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- MAIN BODY CONTAINER -->
+    <div class="app-body">
+      
+      <!-- SIDEBAR: FIELD EXPLORER & CUBE MANAGER -->
+      <aside class="sidebar">
+        <div class="sidebar-section">
+          <div class="section-header">
+            <span class="section-title">CAMPOS DA BASE</span>
+            <span class="badge" id="fieldsCountBadge">0</span>
+          </div>
+
+          <div class="search-box">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="fieldSearchInput" placeholder="Filtrar campos..." />
+          </div>
+
+          <div class="field-pool-container">
+            <div class="field-pool" id="fieldPool">
+              <div class="empty-pool-hint">Carregue dados para visualizar os campos.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- CUBE PRESETS & PERSISTENCE -->
+        <div class="sidebar-section">
+          <div class="section-header">
+            <span class="section-title">CUBOS GRAVADOS</span>
+            <button id="btnSaveCube" class="btn btn-xs btn-primary" disabled>+ Salvar Cubo</button>
+          </div>
+          <div id="savedCubesList" class="saved-cubes-list">
+            <div class="empty-cubes-hint">Nenhum cubo salvo no navegador.</div>
+          </div>
+        </div>
+
+        <div class="sidebar-footer">
+          <span class="dataset-info-tag" id="datasetInfoTag">Base: Nenhuma</span>
+        </div>
+      </aside>
+
+      <!-- MAIN CONTENT WORKSPACE -->
+      <main class="main-content">
+        
+        <!-- TABS NAV -->
+        <div class="view-tabs">
+          <button class="tab-btn active" data-tab="matrixView">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line></svg>
+            <span>Matriz Bi-Cubo (Pivot Grid)</span>
+          </button>
+
+          <button class="tab-btn" data-tab="chartView">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+            <span>Estúdio de Gráficos</span>
+          </button>
+        </div>
+
+        <!-- VIEW TAB 1: MATRIX / CUBE -->
+        <div id="matrixView" class="tab-content active">
+          
+          <!-- GLOBAL FILTERS (SLICERS) BAR -->
+          <div class="matrix-top-bar">
+            <div class="zone-card inline-zone">
+              <div class="zone-header">
+                <span class="zone-name">🔍 FILTROS GLOBAIS (SLICERS)</span>
+                <span class="zone-sub">Restringe a análise do cubo</span>
+              </div>
+              <div class="dropzone" id="zoneFilters" data-zone="filters"></div>
+            </div>
+          </div>
+
+          <!-- DIRECT IN-MATRIX DIMENSION DRAG LAYOUT -->
+          <div class="matrix-builder-frame">
+            
+            <!-- TOP CONTROL STRIP FOR ROWS & COLUMNS DRAG TARGETS -->
+            <div class="matrix-dimension-strip">
+              
+              <!-- LINHAS ZONE (LEFT) -->
+              <div class="zone-card flex-1">
+                <div class="zone-header">
+                  <span class="zone-name">📐 LINHAS (AGRUPAMENTO EM CASCATA)</span>
+                  <span class="zone-sub">Abra em árvore (ex: Família ➔ Item ➔ Segmento)</span>
+                </div>
+                <div class="dropzone" id="zoneRows" data-zone="rows"></div>
+              </div>
+
+              <!-- COLUNAS ZONE (RIGHT) -->
+              <div class="zone-card flex-1">
+                <div class="zone-header">
+                  <span class="zone-name">📊 COLUNAS (DIMENSÃO HORIZONTAL)</span>
+                  <span class="zone-sub">Eixo de colunas (ex: Mês, Região, Ano)</span>
+                </div>
+                <div class="dropzone" id="zoneCols" data-zone="cols"></div>
+              </div>
+
+              <!-- VALORES ZONE -->
+              <div class="zone-card flex-1">
+                <div class="zone-header">
+                  <span class="zone-name">🔢 VALORES (MÉTRICAS AGREGADAS)</span>
+                  <span class="zone-sub">Cálculos (Soma, Média, Contagem)</span>
+                </div>
+                <div class="dropzone" id="zoneValues" data-zone="values"></div>
+              </div>
+
+            </div>
+
+            <!-- MATRIX TOOLBAR -->
+            <div class="matrix-toolbar">
+              <div class="toolbar-left">
+                <button id="btnToggleFullscreen" class="btn btn-xs btn-accent" title="Expandir a matriz para visualização em tela cheia (100% da tela)">
+                  <span>⛶ Tela Cheia</span>
+                </button>
+                <button id="btnExpandAll" class="btn btn-xs btn-outline">📂 Expandir Todos</button>
+                <button id="btnCollapseAll" class="btn btn-xs btn-outline">📁 Recolher Todos</button>
+                <button id="btnToggleSubtotals" class="btn btn-xs btn-outline" style="color: var(--color-primary); border-color: var(--border-color-dark);" title="Ativar/Desativar subtotais de agrupamento no estilo Excel/Google Sheets">
+                  <span>∑ Subtotais: Sim</span>
+                </button>
+                <button id="btnToggleLayoutMode" class="btn btn-xs btn-outline" style="color: var(--color-primary); border-color: var(--border-color-dark);" title="Alternar visualização entre Esquema Tabular (Excel) e Compacto (Google Sheets)">
+                  <span>📐 Layout: Tabular</span>
+                </button>
+                <span class="month-sort-badge" title="Ordenação cronológica de Mês ativa">📅 Mês (Jan ➔ Dez)</span>
+              </div>
+              <div class="toolbar-right">
+                <span id="matrixStatsLabel" class="matrix-stats">0 linhas x 0 colunas</span>
+              </div>
+            </div>
+
+            <!-- MATRIX DISPLAY HOST -->
+            <div class="matrix-container-wrap" id="matrixHost">
+              <div class="empty-state-hero">
+                <div class="hero-icon">📊</div>
+                <h3>Matriz Bi(Cubo) Pronta</h3>
+                <p>Carregue os dados de demonstração ou um arquivo Excel, e arraste os campos para Linhas, Colunas e Valores para explorar o cubo de dados.</p>
+                <button id="btnQuickDemoHero" class="btn btn-primary">Carregar Dados de Exemplo Agora</button>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+        <!-- VIEW TAB 2: CHARTS STUDIO -->
+        <div id="chartView" class="tab-content">
+          
+          <div class="chart-builder-grid">
+            
+            <!-- CHART DRAG ZONES SIDEBAR -->
+            <div class="chart-config-panel">
+              <h4>Configuração do Gráfico</h4>
+              
+              <div class="zone-card">
+                <div class="zone-header">
+                  <span class="zone-name">EIXO X (CATEGORIA)</span>
+                </div>
+                <div class="dropzone" id="zoneChartX" data-zone="chartX"></div>
+              </div>
+
+              <div class="zone-card">
+                <div class="zone-header">
+                  <span class="zone-name">SÉRIE / LEGENDA (AGRUPAR)</span>
+                </div>
+                <div class="dropzone" id="zoneChartSeries" data-zone="chartSeries"></div>
+              </div>
+
+              <div class="zone-card">
+                <div class="zone-header">
+                  <span class="zone-name">VALOR / MÉTRICA (EIXO Y)</span>
+                </div>
+                <div class="dropzone" id="zoneChartValue" data-zone="chartValue"></div>
+              </div>
+
+              <div class="form-group">
+                <label for="chartType">Tipo de Visualização</label>
+                <select id="chartType" class="select-input">
+                  <option value="bar">📊 Barras Agrupadas</option>
+                  <option value="line">📈 Linhas de Tendência</option>
+                  <option value="pie">🍩 Pizza / Donut</option>
+                  <option value="area">🏔️ Área Preenchida</option>
+                  <option value="scatter">🌌 Dispersão (Scatter)</option>
+                </select>
+              </div>
+
+              <div class="chart-export-actions">
+                <button id="btnExportChartPng" class="btn btn-outline btn-block" disabled>
+                  <span>Exportar PNG</span>
+                </button>
+                <button id="btnExportChartPdf" class="btn btn-outline btn-block" disabled>
+                  <span>Exportar PDF</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- CHART DISPLAY CANVAS AREA -->
+            <div class="chart-canvas-container">
+              <div class="chart-canvas-wrap" id="chartArea">
+                <div class="empty-state-hero">
+                  <div class="hero-icon">📈</div>
+                  <h3>Nenhum Gráfico Gerado</h3>
+                  <p>Arraste um campo para o Eixo X e um campo numérico para Valor para renderizar o gráfico.</p>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+      </main>
+
+    </div>
+
+  </div>
+
+  <!-- APPLICATION SCRIPTS -->
+  <script type="module" src="auth.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
