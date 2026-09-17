@@ -74,19 +74,23 @@ app.post('/login', async (c) => {
     if (!email || !password) return c.json({ error: 'Informe e-mail e senha' }, 400);
 
     let userRow = await findUserByEmail(email);
-
-    if (!userRow && (email === 'admin' || email === 'admin@bicubo.app') && password === 'admin') {
-      const passwordHash = await bcrypt.hash('admin', 10);
-      const created = await createUser({
-        email: 'admin@bicubo.app',
-        passwordHash,
-        name: 'Admin Analista',
-      });
-      userRow = await findUserById(created.id);
-    }
-
     if (!userRow && email === 'admin') {
       userRow = await findUserByEmail('admin@bicubo.app');
+    }
+
+    // Bootstrap demo na primeira execução
+    if (!userRow && (email === 'admin' || email === 'admin@bicubo.app') && password === 'admin') {
+      try {
+        const passwordHash = await bcrypt.hash('admin', 10);
+        const created = await createUser({
+          email: 'admin@bicubo.app',
+          passwordHash,
+          name: 'Admin Analista',
+        });
+        userRow = await findUserById(created.id);
+      } catch {
+        userRow = await findUserByEmail('admin@bicubo.app');
+      }
     }
 
     if (!userRow) return c.json({ error: 'Credenciais inválidas' }, 401);
