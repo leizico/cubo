@@ -1,10 +1,9 @@
-import alasql from 'alasql';
-
 /**
  * Executa SQL SELECT sobre um array de objetos.
  * Tabela padrão: vendas (aliases: data, Vendas, Vendas_Empresariais).
  */
-export function runSqlOnRows(sql, rows) {
+export async function runSqlOnRows(sql, rows) {
+  const alasql = (await import('alasql')).default;
   if (!sql || typeof sql !== 'string') {
     const err = new Error('SQL inválido');
     err.status = 400;

@@ -233,7 +233,9 @@ app.post('/sql', async (c) => {
     }
 
     const result = runSqlOnRows(body.sql || '', rows);
-    return c.json({ result });
+    // runSqlOnRows agora é async
+    const resolved = await result;
+    return c.json({ result: resolved });
   } catch (e) {
     return c.json({ error: e.message || 'Falha na consulta SQL' }, e.status || 500);
   }
