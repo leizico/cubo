@@ -157,55 +157,97 @@ const WEEKDAY_NAMES_PT = [
   'Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'
 ];
 
+/** Partes padrão criadas automaticamente para todo date/datetime/timestamp. */
+const DEFAULT_DATE_PARTS = ['year', 'monthName', 'day'];
+
 const DATE_PART_DEFS = {
   year: { label: 'Ano', type: 'num', suffix: 'Ano' },
-  month: { label: 'Mês (número)', type: 'num', suffix: 'Mês Nº' },
-  monthName: { label: 'Mês (nome)', type: 'text', suffix: 'Mês' },
+  month: { label: 'Mês (nº)', type: 'num', suffix: 'Mês Nº' },
+  monthName: { label: 'Mês', type: 'text', suffix: 'Mês' },
   day: { label: 'Dia', type: 'num', suffix: 'Dia' },
   quarter: { label: 'Trimestre', type: 'text', suffix: 'Trimestre' },
   weekday: { label: 'Dia da semana', type: 'text', suffix: 'Dia Semana' },
 };
 
-/** Converte valor bruto em Date válida (Date, serial Excel, string ISO/BR). */
-function parseToDate(v) {
+function fieldNameSuggestsDateTime(fieldName) {
+  if (!fieldName) return false;
+  const n = String(fieldName).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  // Evita campos que já são partes derivadas
+  if (/·\s*(ano|mes|dia|trimestre|dia semana)/i.test(fieldName)) return false;
+  return /(^|[^a-z])(data|date|datetime|timestamp|timestamptz|hora|time|created_at|updated_at|deleted_at|dt_|_dt$|_at$|datahora|data_hora)([^a-z]|$)/i.test(n)
+    || /^(data|date|datetime|timestamp)$/i.test(n.trim());
+}
+
+/** Converte Date, datetime, timestamp (ms/s), serial Excel e strings comuns. */
+function parseToDate(v, { preferExcelSerial = false } = {}) {
   if (v === null || v === undefined || v === '') return null;
-  if (v instanceof Date) {
-    return isNaN(v.getTime()) ? null : v;
-  }
+  if (v instanceof Date) return isNaN(v.getTime()) ? null : v;
+
   if (typeof v === 'number' && Number.isFinite(v)) {
-    // Serial Excel (dias desde 1899-12-30); faixa típica 20000–60000 ≈ 1954–2064
-    if (v > 20000 && v < 80000) {
+    // Timestamp em milissegundos
+    if (v >= 1e11 && v < 1e14) {
+      const d = new Date(v);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    // Timestamp em segundos (Unix)
+    if (v >= 1e9 && v < 1e11) {
+      const d = new Date(v * 1000);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    // Serial Excel (dias). Com nome de campo date, aceita faixa mais ampla.
+    const minSerial = preferExcelSerial ? 1 : 20000;
+    const maxSerial = preferExcelSerial ? 80000 : 80000;
+    if (v >= minSerial && v <= maxSerial) {
       const excelEpoch = Date.UTC(1899, 11, 30);
       const d = new Date(excelEpoch + Math.round(v) * 86400000);
       return isNaN(d.getTime()) ? null : d;
     }
-    // Timestamp ms
-    if (v > 1e11) {
-      const d = new Date(v);
+  }
+
+  if (typeof v === 'string') {
+    const s = v.trim();
+    if (!s) return null;
+
+    // dd/mm/yyyy[ hh:mm[:ss]]
+    const br = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if (br) {
+      let y = parseInt(br[3], 10);
+      if (y < 100) y += y >= 70 ? 1900 : 2000;
+      const d = new Date(
+        y,
+        parseInt(br[2], 10) - 1,
+        parseInt(br[1], 10),
+        br[4] ? parseInt(br[4], 10) : 0,
+        br[5] ? parseInt(br[5], 10) : 0,
+        br[6] ? parseInt(br[6], 10) : 0
+      );
       return isNaN(d.getTime()) ? null : d;
     }
-  }
-  const s = String(v).trim();
-  if (!s) return null;
 
-  // dd/mm/yyyy ou dd-mm-yyyy
-  const br = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})(?:\s|$)/);
-  if (br) {
-    let y = parseInt(br[3], 10);
-    if (y < 100) y += y >= 70 ? 1900 : 2000;
-    const d = new Date(y, parseInt(br[2], 10) - 1, parseInt(br[1], 10));
-    return isNaN(d.getTime()) ? null : d;
+    // yyyy-mm-dd[Thh:mm:ss]
+    const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if (iso) {
+      const d = new Date(
+        parseInt(iso[1], 10),
+        parseInt(iso[2], 10) - 1,
+        parseInt(iso[3], 10),
+        iso[4] ? parseInt(iso[4], 10) : 0,
+        iso[5] ? parseInt(iso[5], 10) : 0,
+        iso[6] ? parseInt(iso[6], 10) : 0
+      );
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    // Número em string (serial / timestamp)
+    if (/^\d+(\.\d+)?$/.test(s)) {
+      return parseToDate(Number(s), { preferExcelSerial });
+    }
+
+    const parsed = new Date(s);
+    return isNaN(parsed.getTime()) ? null : parsed;
   }
 
-  // yyyy-mm-dd
-  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) {
-    const d = new Date(parseInt(iso[1], 10), parseInt(iso[2], 10) - 1, parseInt(iso[3], 10));
-    return isNaN(d.getTime()) ? null : d;
-  }
-
-  const parsed = new Date(s);
-  return isNaN(parsed.getTime()) ? null : parsed;
+  return null;
 }
 
 function extractDatePart(date, part) {
@@ -231,14 +273,10 @@ function rebuildFieldDistinct(field) {
   state._fieldDistinct[field] = new Set(getDistinctValues(field).map(String));
 }
 
-/**
- * Materializa partes de data como colunas virtuais nas linhas.
- * @param {string} sourceField
- * @param {string[]} parts — year|month|monthName|day|quarter|weekday
- */
-function createDateDerivedFields(sourceField, parts) {
+function createDateDerivedFields(sourceField, parts = DEFAULT_DATE_PARTS) {
   if (!sourceField || !parts?.length || !state.data.length) return [];
 
+  const preferExcel = fieldNameSuggestsDateTime(sourceField);
   const created = [];
   parts.forEach((part) => {
     if (!DATE_PART_DEFS[part]) return;
@@ -246,7 +284,7 @@ function createDateDerivedFields(sourceField, parts) {
     if (state.fields.includes(name)) return;
 
     state.data.forEach((row) => {
-      row[name] = extractDatePart(parseToDate(row[sourceField]), part);
+      row[name] = extractDatePart(parseToDate(row[sourceField], { preferExcelSerial: preferExcel }), part);
     });
 
     state.fields.push(name);
@@ -256,22 +294,49 @@ function createDateDerivedFields(sourceField, parts) {
     created.push(name);
   });
 
-  document.getElementById('fieldsCountBadge').textContent = state.fields.length;
+  const badge = document.getElementById('fieldsCountBadge');
+  if (badge) badge.textContent = state.fields.length;
   return created;
+}
+
+/** Um clique: cria Ano + Mês + Dia na hora. */
+function expandDateFieldSimple(field) {
+  state.fieldTypes[field] = 'date';
+  const created = createDateDerivedFields(field, DEFAULT_DATE_PARTS);
+  refreshAll();
+  return created;
+}
+
+/** Ao carregar a base, gera Dia/Mês/Ano para todos os campos date/datetime/timestamp. */
+function autoExpandAllDateFields() {
+  const sources = state.fields.filter((f) => {
+    if (state.derivedFields.some((d) => d.name === f)) return false;
+    return state.fieldTypes[f] === 'date' || fieldLooksLikeDate(f);
+  });
+  let total = 0;
+  sources.forEach((f) => {
+    state.fieldTypes[f] = 'date';
+    total += createDateDerivedFields(f, DEFAULT_DATE_PARTS).length;
+  });
+  return total;
 }
 
 function fieldLooksLikeDate(f) {
   if (state.fieldTypes[f] === 'date') return true;
   if (!state.data.length) return false;
-  const sample = state.data.slice(0, 80).map((r) => r[f]);
+  const preferExcel = fieldNameSuggestsDateTime(f);
+  const sample = state.data.slice(0, 100).map((r) => r[f]);
   let ok = 0;
   let total = 0;
   for (const v of sample) {
     if (v === null || v === undefined || v === '') continue;
     total++;
-    if (parseToDate(v)) ok++;
+    if (parseToDate(v, { preferExcelSerial: preferExcel })) ok++;
   }
-  return total > 0 && ok / total >= 0.5;
+  if (total === 0) return preferExcel;
+  // Nome date/datetime/timestamp: basta 30% parseável; senão 50%
+  const threshold = preferExcel ? 0.3 : 0.5;
+  return ok / total >= threshold;
 }
 
 function removeDerivedField(fieldName) {
@@ -289,25 +354,30 @@ function removeDerivedField(fieldName) {
   if (state.chart.series === fieldName) state.chart.series = null;
   if (state.chart.value === fieldName) state.chart.value = null;
   state.data.forEach((row) => { delete row[fieldName]; });
-  document.getElementById('fieldsCountBadge').textContent = state.fields.length;
+  const badge = document.getElementById('fieldsCountBadge');
+  if (badge) badge.textContent = state.fields.length;
 }
 
-function detectType(values) {
-  let numCount = 0, dateCount = 0, total = 0;
+function detectType(values, fieldName = '') {
+  const preferExcel = fieldNameSuggestsDateTime(fieldName);
+  let numCount = 0;
+  let dateCount = 0;
+  let total = 0;
   for (const v of values) {
     if (v === null || v === undefined || v === '') continue;
     total++;
     if (v instanceof Date && !isNaN(v.getTime())) {
       dateCount++;
-    } else if (typeof v === 'number') {
-      if (v > 20000 && v < 80000) dateCount++; // serial Excel provável
-      else numCount++;
-    } else if (parseToDate(v)) {
+    } else if (parseToDate(v, { preferExcelSerial: preferExcel })) {
       dateCount++;
+    } else if (typeof v === 'number') {
+      numCount++;
     }
   }
-  if (total === 0) return 'text';
-  if (dateCount / total > 0.5) return 'date';
+  if (total === 0) return preferExcel ? 'date' : 'text';
+  const dateRatio = dateCount / total;
+  if (preferExcel && dateRatio >= 0.25) return 'date';
+  if (dateRatio > 0.5) return 'date';
   if (numCount / total > 0.6) return 'num';
   return 'text';
 }
@@ -318,7 +388,7 @@ async function loadDataset(rows, datasetName = 'Dados Importados', { persist = t
   state.fields = rows.length ? Object.keys(rows[0]) : [];
   state.fieldTypes = {};
   state.fields.forEach((f) => {
-    state.fieldTypes[f] = detectType(rows.map((r) => r[f]));
+    state.fieldTypes[f] = detectType(rows.map((r) => r[f]), f);
   });
 
   state._fieldDistinct = {};
@@ -348,7 +418,12 @@ async function loadDataset(rows, datasetName = 'Dados Importados', { persist = t
   state.currentDatasetId = datasetId;
   state.currentDatasetName = datasetName;
 
-  document.getElementById('datasetInfoTag').textContent = `Base: ${datasetName} (${rows.length} registros)`;
+  // Automático: todo date/datetime/timestamp vira Dia, Mês e Ano
+  const addedParts = autoExpandAllDateFields();
+
+  document.getElementById('datasetInfoTag').textContent = addedParts
+    ? `Base: ${datasetName} (${rows.length} registros) · +${addedParts} partes de data`
+    : `Base: ${datasetName} (${rows.length} registros)`;
   document.getElementById('fieldsCountBadge').textContent = state.fields.length;
 
   refreshAll();
@@ -465,17 +540,20 @@ function renderFieldPool() {
     actions.className = 'field-chip-actions';
 
     if ((state.fieldTypes[f] === 'date' || fieldLooksLikeDate(f)) && !isDerived) {
-      const splitBtn = document.createElement('button');
-      splitBtn.type = 'button';
-      splitBtn.className = 'btn-field-date';
-      splitBtn.title = 'Criar Dia / Mês / Ano a partir desta data';
-      splitBtn.textContent = state.fieldTypes[f] === 'date' ? '📅→' : '📅+';
-      splitBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (state.fieldTypes[f] !== 'date') state.fieldTypes[f] = 'date';
-        openDatePartsModal(f);
-      });
-      actions.appendChild(splitBtn);
+      const alreadyExpanded = DEFAULT_DATE_PARTS.every((p) => state.fields.includes(derivedFieldName(f, p)));
+      if (!alreadyExpanded) {
+        const splitBtn = document.createElement('button');
+        splitBtn.type = 'button';
+        splitBtn.className = 'btn-field-date';
+        splitBtn.title = 'Criar Dia, Mês e Ano agora';
+        splitBtn.textContent = 'Dia/Mês/Ano';
+        splitBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          expandDateFieldSimple(f);
+        });
+        actions.appendChild(splitBtn);
+      }
     }
 
     if (isDerived) {
@@ -507,56 +585,6 @@ function renderFieldPool() {
 
     pool.appendChild(chip);
   });
-}
-
-let datePartsSourceField = null;
-
-function openDatePartsModal(field) {
-  datePartsSourceField = field;
-  const modal = document.getElementById('datePartsModal');
-  const title = document.getElementById('datePartsModalTitle');
-  const sub = document.getElementById('datePartsModalSub');
-  if (!modal) return;
-
-  if (title) title.textContent = `Partes de data: ${getFieldLabel(field)}`;
-  if (sub) sub.textContent = `Crie campos virtuais (Dia, Mês, Ano…) derivados de "${field}".`;
-
-  Object.keys(DATE_PART_DEFS).forEach((part) => {
-    const cb = document.getElementById(`datePart_${part}`);
-    if (!cb) return;
-    const already = state.fields.includes(derivedFieldName(field, part));
-    cb.checked = !already && (part === 'year' || part === 'monthName' || part === 'day');
-    cb.disabled = already;
-    const row = cb.closest('label');
-    if (row) row.style.opacity = already ? '0.45' : '1';
-  });
-
-  modal.classList.remove('hidden');
-}
-
-function applyDatePartsFromModal() {
-  if (!datePartsSourceField) return;
-  const parts = Object.keys(DATE_PART_DEFS).filter((part) => {
-    const cb = document.getElementById(`datePart_${part}`);
-    return cb && cb.checked && !cb.disabled;
-  });
-
-  if (!parts.length) {
-    alert('Selecione ao menos uma parte (Dia, Mês ou Ano).');
-    return;
-  }
-
-  const created = createDateDerivedFields(datePartsSourceField, parts);
-  document.getElementById('datePartsModal')?.classList.add('hidden');
-  refreshAll();
-
-  if (created.length) {
-    const info = document.getElementById('datasetInfoTag');
-    if (info) {
-      const base = info.textContent.replace(/\s·\s\+\d+ campos data.*$/, '');
-      info.textContent = `${base} · +${created.length} campos data`;
-    }
-  }
 }
 
 document.getElementById('fieldSearchInput').addEventListener('input', renderFieldPool);
@@ -755,17 +783,6 @@ if (closeFilterBtn) {
     const modal = document.getElementById('filterModal');
     if (modal) modal.classList.add('hidden');
   });
-}
-
-const closeDatePartsBtn = document.getElementById('closeDatePartsBtn');
-if (closeDatePartsBtn) {
-  closeDatePartsBtn.addEventListener('click', () => {
-    document.getElementById('datePartsModal')?.classList.add('hidden');
-  });
-}
-const btnApplyDateParts = document.getElementById('btnApplyDateParts');
-if (btnApplyDateParts) {
-  btnApplyDateParts.addEventListener('click', applyDatePartsFromModal);
 }
 
 // RENDER DROP ZONE CHIPS

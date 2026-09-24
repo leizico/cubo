@@ -474,10 +474,12 @@ body.fullscreen-matrix-active .modal-overlay {
   background: var(--bg-surface-secondary);
   color: var(--color-primary);
   border-radius: 4px;
-  font-size: 0.65rem;
-  line-height: 1;
-  padding: 0.2rem 0.3rem;
+  font-size: 0.62rem;
+  font-weight: 600;
+  line-height: 1.2;
+  padding: 0.25rem 0.35rem;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .btn-field-date:hover {
