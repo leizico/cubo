@@ -21,7 +21,7 @@ function getMonthIndex(val) {
 
 function isMonthField(fieldName) {
   if (!fieldName) return false;
-  return /mês|mes|month|periodo|período/i.test(fieldName);
+  return /mês|mes|month|periodo|período|· Mês$/i.test(fieldName) && !/mês nº|mes nº|month.?num/i.test(fieldName);
 }
 
 /** Normaliza valores de dimensão (null/vazio → marcador estável). */
@@ -84,6 +84,8 @@ const state = {
   layoutMode: 'tabular', // 'tabular' (Excel) or 'compact' (Google Sheets)
   currentDatasetId: null,
   currentDatasetName: null,
+  /** Campos virtuais derivados de data: [{ name, source, part }] */
+  derivedFields: [],
 };
 
 export function getFieldLabel(field) {
@@ -121,6 +123,7 @@ function generateDemoDataset() {
           rows.push({
             'Ano': 2026,
             'Mês': mes,
+            'Data': new Date(2026, meses.indexOf(mes), Math.min(28, 5 + (id % 20))),
             'Família': cat.familia,
             'Descrição Item': item,
             'Segmento': seg,
@@ -130,6 +133,7 @@ function generateDemoDataset() {
             'Quantidade (unid)': qtd,
             'Margem (R$)': margem
           });
+          id++;
         });
       });
     });
@@ -145,16 +149,165 @@ function fmtNum(n) {
   return rounded.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
 }
 
+const MONTH_NAMES_PT = [
+  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+];
+const WEEKDAY_NAMES_PT = [
+  'Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'
+];
+
+const DATE_PART_DEFS = {
+  year: { label: 'Ano', type: 'num', suffix: 'Ano' },
+  month: { label: 'Mês (número)', type: 'num', suffix: 'Mês Nº' },
+  monthName: { label: 'Mês (nome)', type: 'text', suffix: 'Mês' },
+  day: { label: 'Dia', type: 'num', suffix: 'Dia' },
+  quarter: { label: 'Trimestre', type: 'text', suffix: 'Trimestre' },
+  weekday: { label: 'Dia da semana', type: 'text', suffix: 'Dia Semana' },
+};
+
+/** Converte valor bruto em Date válida (Date, serial Excel, string ISO/BR). */
+function parseToDate(v) {
+  if (v === null || v === undefined || v === '') return null;
+  if (v instanceof Date) {
+    return isNaN(v.getTime()) ? null : v;
+  }
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    // Serial Excel (dias desde 1899-12-30); faixa típica 20000–60000 ≈ 1954–2064
+    if (v > 20000 && v < 80000) {
+      const excelEpoch = Date.UTC(1899, 11, 30);
+      const d = new Date(excelEpoch + Math.round(v) * 86400000);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    // Timestamp ms
+    if (v > 1e11) {
+      const d = new Date(v);
+      return isNaN(d.getTime()) ? null : d;
+    }
+  }
+  const s = String(v).trim();
+  if (!s) return null;
+
+  // dd/mm/yyyy ou dd-mm-yyyy
+  const br = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})(?:\s|$)/);
+  if (br) {
+    let y = parseInt(br[3], 10);
+    if (y < 100) y += y >= 70 ? 1900 : 2000;
+    const d = new Date(y, parseInt(br[2], 10) - 1, parseInt(br[1], 10));
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // yyyy-mm-dd
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    const d = new Date(parseInt(iso[1], 10), parseInt(iso[2], 10) - 1, parseInt(iso[3], 10));
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  const parsed = new Date(s);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function extractDatePart(date, part) {
+  if (!date) return '(vazio)';
+  switch (part) {
+    case 'year': return date.getFullYear();
+    case 'month': return date.getMonth() + 1;
+    case 'monthName': return MONTH_NAMES_PT[date.getMonth()];
+    case 'day': return date.getDate();
+    case 'quarter': return `T${Math.floor(date.getMonth() / 3) + 1}`;
+    case 'weekday': return WEEKDAY_NAMES_PT[date.getDay()];
+    default: return '(vazio)';
+  }
+}
+
+function derivedFieldName(source, part) {
+  const def = DATE_PART_DEFS[part];
+  return `${source} · ${def ? def.suffix : part}`;
+}
+
+function rebuildFieldDistinct(field) {
+  if (!state._fieldDistinct) state._fieldDistinct = {};
+  state._fieldDistinct[field] = new Set(getDistinctValues(field).map(String));
+}
+
+/**
+ * Materializa partes de data como colunas virtuais nas linhas.
+ * @param {string} sourceField
+ * @param {string[]} parts — year|month|monthName|day|quarter|weekday
+ */
+function createDateDerivedFields(sourceField, parts) {
+  if (!sourceField || !parts?.length || !state.data.length) return [];
+
+  const created = [];
+  parts.forEach((part) => {
+    if (!DATE_PART_DEFS[part]) return;
+    const name = derivedFieldName(sourceField, part);
+    if (state.fields.includes(name)) return;
+
+    state.data.forEach((row) => {
+      row[name] = extractDatePart(parseToDate(row[sourceField]), part);
+    });
+
+    state.fields.push(name);
+    state.fieldTypes[name] = DATE_PART_DEFS[part].type;
+    state.derivedFields.push({ name, source: sourceField, part });
+    rebuildFieldDistinct(name);
+    created.push(name);
+  });
+
+  document.getElementById('fieldsCountBadge').textContent = state.fields.length;
+  return created;
+}
+
+function fieldLooksLikeDate(f) {
+  if (state.fieldTypes[f] === 'date') return true;
+  if (!state.data.length) return false;
+  const sample = state.data.slice(0, 80).map((r) => r[f]);
+  let ok = 0;
+  let total = 0;
+  for (const v of sample) {
+    if (v === null || v === undefined || v === '') continue;
+    total++;
+    if (parseToDate(v)) ok++;
+  }
+  return total > 0 && ok / total >= 0.5;
+}
+
+function removeDerivedField(fieldName) {
+  const idx = state.derivedFields.findIndex((d) => d.name === fieldName);
+  if (idx < 0) return;
+  state.derivedFields.splice(idx, 1);
+  state.fields = state.fields.filter((f) => f !== fieldName);
+  delete state.fieldTypes[fieldName];
+  delete state._fieldDistinct?.[fieldName];
+  delete state.fieldAliases[fieldName];
+  delete state.fieldSortDirs[fieldName];
+  delete state.filterSelected[fieldName];
+  removeFieldEverywhere(fieldName, null);
+  if (state.chart.x === fieldName) state.chart.x = null;
+  if (state.chart.series === fieldName) state.chart.series = null;
+  if (state.chart.value === fieldName) state.chart.value = null;
+  state.data.forEach((row) => { delete row[fieldName]; });
+  document.getElementById('fieldsCountBadge').textContent = state.fields.length;
+}
+
 function detectType(values) {
   let numCount = 0, dateCount = 0, total = 0;
   for (const v of values) {
     if (v === null || v === undefined || v === '') continue;
     total++;
-    if (typeof v === 'number') numCount++;
-    else if (v instanceof Date) dateCount++;
+    if (v instanceof Date && !isNaN(v.getTime())) {
+      dateCount++;
+    } else if (typeof v === 'number') {
+      if (v > 20000 && v < 80000) dateCount++; // serial Excel provável
+      else numCount++;
+    } else if (parseToDate(v)) {
+      dateCount++;
+    }
   }
   if (total === 0) return 'text';
-  if (dateCount / total > 0.6) return 'date';
+  if (dateCount / total > 0.5) return 'date';
   if (numCount / total > 0.6) return 'num';
   return 'text';
 }
@@ -191,6 +344,7 @@ async function loadDataset(rows, datasetName = 'Dados Importados', { persist = t
 
   state.filterSelected = {};
   state.collapsedNodes.clear();
+  state.derivedFields = [];
   state.currentDatasetId = datasetId;
   state.currentDatasetName = datasetName;
 
@@ -295,13 +449,55 @@ function renderFieldPool() {
     chip.draggable = true;
     chip.dataset.field = f;
 
+    const isDerived = state.derivedFields.some((d) => d.name === f);
     const typeClass = state.fieldTypes[f] === 'num' ? 'num' : (state.fieldTypes[f] === 'date' ? 'date' : 'text');
-    const typeLabel = state.fieldTypes[f] === 'num' ? '123' : (state.fieldTypes[f] === 'date' ? '📅' : 'ABC');
+    const typeLabel = state.fieldTypes[f] === 'num' ? '123' : (state.fieldTypes[f] === 'date' ? '📅' : (isDerived ? 'ƒ' : 'ABC'));
 
     const displayLabel = getFieldLabel(f);
     const subText = f !== displayLabel ? ` <span style="font-size:0.65rem; color:var(--color-text-muted);">(${f})</span>` : '';
 
-    chip.innerHTML = `<span>${displayLabel}${subText}</span><span class="type-tag ${typeClass}">${typeLabel}</span>`;
+    const left = document.createElement('span');
+    left.className = 'field-chip-label';
+    left.innerHTML = `${displayLabel}${subText}`;
+    chip.appendChild(left);
+
+    const actions = document.createElement('span');
+    actions.className = 'field-chip-actions';
+
+    if ((state.fieldTypes[f] === 'date' || fieldLooksLikeDate(f)) && !isDerived) {
+      const splitBtn = document.createElement('button');
+      splitBtn.type = 'button';
+      splitBtn.className = 'btn-field-date';
+      splitBtn.title = 'Criar Dia / Mês / Ano a partir desta data';
+      splitBtn.textContent = state.fieldTypes[f] === 'date' ? '📅→' : '📅+';
+      splitBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (state.fieldTypes[f] !== 'date') state.fieldTypes[f] = 'date';
+        openDatePartsModal(f);
+      });
+      actions.appendChild(splitBtn);
+    }
+
+    if (isDerived) {
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'btn-field-date';
+      delBtn.title = 'Remover campo virtual';
+      delBtn.textContent = '✕';
+      delBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeDerivedField(f);
+        refreshAll();
+      });
+      actions.appendChild(delBtn);
+    }
+
+    const tag = document.createElement('span');
+    tag.className = `type-tag ${typeClass}${isDerived ? ' derived' : ''}`;
+    tag.textContent = typeLabel;
+    actions.appendChild(tag);
+
+    chip.appendChild(actions);
 
     if (used.has(f)) chip.style.opacity = '0.4';
 
@@ -311,6 +507,56 @@ function renderFieldPool() {
 
     pool.appendChild(chip);
   });
+}
+
+let datePartsSourceField = null;
+
+function openDatePartsModal(field) {
+  datePartsSourceField = field;
+  const modal = document.getElementById('datePartsModal');
+  const title = document.getElementById('datePartsModalTitle');
+  const sub = document.getElementById('datePartsModalSub');
+  if (!modal) return;
+
+  if (title) title.textContent = `Partes de data: ${getFieldLabel(field)}`;
+  if (sub) sub.textContent = `Crie campos virtuais (Dia, Mês, Ano…) derivados de "${field}".`;
+
+  Object.keys(DATE_PART_DEFS).forEach((part) => {
+    const cb = document.getElementById(`datePart_${part}`);
+    if (!cb) return;
+    const already = state.fields.includes(derivedFieldName(field, part));
+    cb.checked = !already && (part === 'year' || part === 'monthName' || part === 'day');
+    cb.disabled = already;
+    const row = cb.closest('label');
+    if (row) row.style.opacity = already ? '0.45' : '1';
+  });
+
+  modal.classList.remove('hidden');
+}
+
+function applyDatePartsFromModal() {
+  if (!datePartsSourceField) return;
+  const parts = Object.keys(DATE_PART_DEFS).filter((part) => {
+    const cb = document.getElementById(`datePart_${part}`);
+    return cb && cb.checked && !cb.disabled;
+  });
+
+  if (!parts.length) {
+    alert('Selecione ao menos uma parte (Dia, Mês ou Ano).');
+    return;
+  }
+
+  const created = createDateDerivedFields(datePartsSourceField, parts);
+  document.getElementById('datePartsModal')?.classList.add('hidden');
+  refreshAll();
+
+  if (created.length) {
+    const info = document.getElementById('datasetInfoTag');
+    if (info) {
+      const base = info.textContent.replace(/\s·\s\+\d+ campos data.*$/, '');
+      info.textContent = `${base} · +${created.length} campos data`;
+    }
+  }
 }
 
 document.getElementById('fieldSearchInput').addEventListener('input', renderFieldPool);
@@ -509,6 +755,17 @@ if (closeFilterBtn) {
     const modal = document.getElementById('filterModal');
     if (modal) modal.classList.add('hidden');
   });
+}
+
+const closeDatePartsBtn = document.getElementById('closeDatePartsBtn');
+if (closeDatePartsBtn) {
+  closeDatePartsBtn.addEventListener('click', () => {
+    document.getElementById('datePartsModal')?.classList.add('hidden');
+  });
+}
+const btnApplyDateParts = document.getElementById('btnApplyDateParts');
+if (btnApplyDateParts) {
+  btnApplyDateParts.addEventListener('click', applyDatePartsFromModal);
 }
 
 // RENDER DROP ZONE CHIPS
@@ -2029,6 +2286,16 @@ function applySavedCube(item) {
     return;
   }
 
+  // Recria campos virtuais de data se o cubo os tiver gravados
+  if (Array.isArray(item.derivedFields) && item.derivedFields.length) {
+    item.derivedFields.forEach((d) => {
+      if (!d?.source || !d?.part) return;
+      if (!state.fields.includes(d.source)) return;
+      if (state.fields.includes(d.name)) return;
+      createDateDerivedFields(d.source, [d.part]);
+    });
+  }
+
   const validField = (f) => state.fields.includes(f);
 
   state.pivot.rows = (item.pivot.rows || []).filter(validField);
@@ -2099,6 +2366,7 @@ if (btnSaveCube) {
       fieldAliases: state.fieldAliases,
       fieldSortDirs: state.fieldSortDirs,
       filterSelected: filterSelectedObj,
+      derivedFields: state.derivedFields,
       chart: state.chart,
       chartType: document.getElementById('chartType') ? document.getElementById('chartType').value : 'bar',
     };

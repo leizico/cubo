@@ -452,6 +452,46 @@ body.fullscreen-matrix-active .modal-overlay {
 .type-tag.num { background: #DCFCE7; color: #166534; }
 .type-tag.date { background: #FEF3C7; color: #92400E; }
 .type-tag.text { background: #F1F5F9; color: #475569; }
+.type-tag.derived { background: #E0E7FF; color: #3730A3; }
+
+.field-chip-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.field-chip-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.btn-field-date {
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface-secondary);
+  color: var(--color-primary);
+  border-radius: 4px;
+  font-size: 0.65rem;
+  line-height: 1;
+  padding: 0.2rem 0.3rem;
+  cursor: pointer;
+}
+
+.btn-field-date:hover {
+  border-color: var(--color-primary);
+  background: #EEF2FF;
+}
+
+.date-parts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 240px;
+  overflow-y: auto;
+}
 
 .saved-cubes-list {
   max-height: 120px;

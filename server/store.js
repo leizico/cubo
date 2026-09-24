@@ -117,6 +117,7 @@ export async function listCubes(userId) {
       fieldAliases: c.fieldAliases,
       fieldSortDirs: c.fieldSortDirs,
       filterSelected: c.filterSelected,
+      derivedFields: c.derivedFields || [],
       chart: c.chart,
       chartType: c.chartType,
     }));
@@ -153,6 +154,7 @@ export async function saveCube(userId, payload) {
     fieldAliases: payload.fieldAliases || {},
     fieldSortDirs: payload.fieldSortDirs || {},
     filterSelected: payload.filterSelected || {},
+    derivedFields: payload.derivedFields || [],
     chart: payload.chart || null,
     chartType: payload.chartType || 'bar',
     savedAt: now,
