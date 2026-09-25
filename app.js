@@ -88,6 +88,8 @@ const state = {
   derivedFields: [],
   /** Campos calculados: [{ name, expr }] */
   formulaFields: [],
+  selectedRowKeys: new Set(),
+  lastSelectedRowKey: null,
 };
 
 export function getFieldLabel(field) {
@@ -152,6 +154,71 @@ function fmtNum(n) {
   if (n === null || n === undefined || isNaN(n)) return '';
   const rounded = Math.round(n * 100) / 100;
   return rounded.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+}
+
+function isFormulaField(fieldName) {
+  return !!(fieldName && state.formulaFields.some((f) => f.name === fieldName));
+}
+
+/** Fórmulas: ▲ verde se positivo, ▼ vermelho se negativo. */
+function paintValueCell(td, val, fieldName) {
+  const text = fmtNum(val);
+  td.textContent = '';
+  if (!isFormulaField(fieldName) || text === '' || !val) {
+    td.textContent = text;
+    return;
+  }
+  const icon = document.createElement('span');
+  icon.className = 'val-trend';
+  icon.setAttribute('aria-hidden', 'true');
+  if (val > 0) {
+    td.classList.add('val-up');
+    icon.textContent = '▲';
+    icon.title = 'Positivo';
+  } else {
+    td.classList.add('val-down');
+    icon.textContent = '▼';
+    icon.title = 'Negativo';
+  }
+  td.appendChild(icon);
+  td.appendChild(document.createTextNode(` ${text}`));
+}
+
+function attachRowSelection(tr, rowKey) {
+  tr.dataset.rowKey = rowKey;
+  tr.classList.add('matrix-data-row');
+  if (state.selectedRowKeys.has(rowKey)) tr.classList.add('row-selected');
+  tr.addEventListener('click', (e) => {
+    if (e.target.closest('button, .tree-toggle-btn, .excel-header-btn, select, input, a')) return;
+    const keysInView = [...document.querySelectorAll('#matrixHost tr.matrix-data-row')].map((row) => row.dataset.rowKey);
+    if (e.shiftKey && state.lastSelectedRowKey) {
+      const a = keysInView.indexOf(state.lastSelectedRowKey);
+      const b = keysInView.indexOf(rowKey);
+      if (a >= 0 && b >= 0) {
+        const [start, end] = a < b ? [a, b] : [b, a];
+        if (!e.ctrlKey && !e.metaKey) state.selectedRowKeys.clear();
+        for (let i = start; i <= end; i++) state.selectedRowKeys.add(keysInView[i]);
+      }
+    } else if (state.selectedRowKeys.has(rowKey)) {
+      state.selectedRowKeys.delete(rowKey);
+    } else {
+      state.selectedRowKeys.add(rowKey);
+    }
+    state.lastSelectedRowKey = rowKey;
+    document.querySelectorAll('#matrixHost tr.matrix-data-row').forEach((row) => {
+      row.classList.toggle('row-selected', state.selectedRowKeys.has(row.dataset.rowKey));
+    });
+    updateMatrixSelectionLabel();
+  });
+}
+
+function updateMatrixSelectionLabel() {
+  const label = document.getElementById('matrixStatsLabel');
+  if (!label) return;
+  const base = label.dataset.baseStats || label.textContent.replace(/ · \d+ selecionada\(s\)$/, '');
+  label.dataset.baseStats = base;
+  const n = state.selectedRowKeys.size;
+  label.textContent = n ? `${base} · ${n} selecionada${n > 1 ? 's' : ''}` : base;
 }
 
 const MONTH_NAMES_PT = [
@@ -661,6 +728,8 @@ async function loadDataset(rows, datasetName = 'Dados Importados', { persist = t
   state.collapsedNodes.clear();
   state.derivedFields = [];
   state.formulaFields = [];
+  state.selectedRowKeys.clear();
+  state.lastSelectedRowKey = null;
   state.currentDatasetId = datasetId;
   state.currentDatasetName = datasetName;
 
@@ -1681,7 +1750,7 @@ function renderMatrix() {
         const val = cellAgg([], cc, v);
         const td = document.createElement('td');
         td.className = 'val-cell';
-        td.textContent = fmtNum(val);
+        paintValueCell(td, val, v.field);
         tr.appendChild(td);
       });
     });
@@ -1691,10 +1760,11 @@ function renderMatrix() {
       const val = !v.field ? m.data.length : AGGS[v.agg].fn(nums);
       const td = document.createElement('td');
       td.className = 'val-cell total-col';
-      td.textContent = fmtNum(val);
+      paintValueCell(td, val, v.field);
       tr.appendChild(td);
     });
 
+    attachRowSelection(tr, 'flat');
     tbodyRows.push(tr);
   }
 
@@ -1713,7 +1783,7 @@ function renderMatrix() {
       const val = !v.field ? allInCol.length : AGGS[v.agg].fn(nums);
       const td = document.createElement('td');
       td.className = 'val-cell';
-      td.textContent = fmtNum(val);
+      paintValueCell(td, val, v.field);
       totalTr.appendChild(td);
     });
   });
@@ -1723,7 +1793,7 @@ function renderMatrix() {
     const val = !v.field ? m.data.length : AGGS[v.agg].fn(nums);
     const td = document.createElement('td');
     td.className = 'val-cell total-col';
-    td.textContent = fmtNum(val);
+    paintValueCell(td, val, v.field);
     totalTr.appendChild(td);
   });
 
@@ -1735,6 +1805,7 @@ function renderMatrix() {
   table.appendChild(thead);
   const tbody = document.createElement('tbody');
   tbodyRows.forEach(r => tbody.appendChild(r));
+  attachRowSelection(totalTr, 'grand');
   tbody.appendChild(totalTr);
   table.appendChild(tbody);
 
@@ -1742,7 +1813,10 @@ function renderMatrix() {
   host.appendChild(table);
 
   const totalRowCount = rowCombos.length;
-  document.getElementById('matrixStatsLabel').textContent = `${totalRowCount} grupos × ${colCombos.length} colunas`;
+  const stats = document.getElementById('matrixStatsLabel');
+  stats.textContent = `${totalRowCount} grupos × ${colCombos.length} colunas`;
+  stats.dataset.baseStats = stats.textContent;
+  updateMatrixSelectionLabel();
 
   buildMatrixAOA(m, rowCombos.length ? rowCombos : [['Total']]);
   updateExportButtons();
@@ -1826,7 +1900,7 @@ function generateTableRowsFromTree(nodes, rowFields, colFields, colCombos, value
           const val = aggregateBucket(node.rows, colFields, cc, v);
           const td = document.createElement('td');
           td.className = 'val-cell';
-          td.textContent = fmtNum(val);
+          paintValueCell(td, val, v.field);
           tr.appendChild(td);
         });
       });
@@ -1836,10 +1910,11 @@ function generateTableRowsFromTree(nodes, rowFields, colFields, colCombos, value
         const val = !v.field ? node.rows.length : AGGS[v.agg].fn(nums);
         const td = document.createElement('td');
         td.className = 'val-cell total-col';
-        td.textContent = fmtNum(val);
+        paintValueCell(td, val, v.field);
         tr.appendChild(td);
       });
 
+      attachRowSelection(tr, `c:${node.key}`);
       trs.push(tr);
       return;
     }
@@ -1883,6 +1958,7 @@ function generateTableRowsFromTree(nodes, rowFields, colFields, colCombos, value
           tr.appendChild(td);
         });
 
+        attachRowSelection(tr, `p:${node.key}`);
         trs.push(tr);
       }
 
@@ -1907,7 +1983,7 @@ function generateTableRowsFromTree(nodes, rowFields, colFields, colCombos, value
             const val = aggregateBucket(node.rows, colFields, cc, v);
             const td = document.createElement('td');
             td.className = 'val-cell';
-            td.textContent = fmtNum(val);
+            paintValueCell(td, val, v.field);
             subTr.appendChild(td);
           });
         });
@@ -1917,10 +1993,11 @@ function generateTableRowsFromTree(nodes, rowFields, colFields, colCombos, value
           const val = !v.field ? node.rows.length : AGGS[v.agg].fn(nums);
           const td = document.createElement('td');
           td.className = 'val-cell total-col';
-          td.textContent = fmtNum(val);
+          paintValueCell(td, val, v.field);
           subTr.appendChild(td);
         });
 
+        attachRowSelection(subTr, `s:${node.key}`);
         trs.push(subTr);
       }
     } else {
@@ -1968,7 +2045,7 @@ function generateTableRowsFromTree(nodes, rowFields, colFields, colCombos, value
           const val = aggregateBucket(node.rows, colFields, cc, v);
           const td = document.createElement('td');
           td.className = 'val-cell';
-          td.textContent = fmtNum(val);
+          paintValueCell(td, val, v.field);
           tr.appendChild(td);
         });
       });
@@ -1979,10 +2056,11 @@ function generateTableRowsFromTree(nodes, rowFields, colFields, colCombos, value
         const val = !v.field ? node.rows.length : AGGS[v.agg].fn(nums);
         const td = document.createElement('td');
         td.className = 'val-cell total-col';
-        td.textContent = fmtNum(val);
+        paintValueCell(td, val, v.field);
         tr.appendChild(td);
       });
 
+      attachRowSelection(tr, `l:${node.key}`);
       trs.push(tr);
     }
   }

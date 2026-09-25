@@ -790,8 +790,41 @@ table.matrix-table tbody th {
   z-index: 5;
 }
 
-table.matrix-table td.val-cell {
-  text-align: right;
+table.matrix-table tr.matrix-data-row {
+  cursor: pointer;
+}
+
+table.matrix-table tr.row-selected td,
+table.matrix-table tr.row-selected th {
+  background: #DBEAFE;
+  box-shadow: inset 0 0 0 9999px rgba(30, 58, 138, 0.08);
+}
+
+table.matrix-table tr.row-selected td:first-child,
+table.matrix-table tr.row-selected th:first-child {
+  box-shadow: inset 3px 0 0 #1E3A8A, inset 0 0 0 9999px rgba(30, 58, 138, 0.08);
+}
+
+table.matrix-table td.val-up,
+table.matrix-table tr.total-row td.val-up,
+table.matrix-table td.total-col.val-up,
+table.matrix-table tr.subtotal-row td.val-up {
+  color: #15803D;
+  font-weight: 600;
+}
+
+table.matrix-table td.val-down,
+table.matrix-table tr.total-row td.val-down,
+table.matrix-table td.total-col.val-down,
+table.matrix-table tr.subtotal-row td.val-down {
+  color: #B91C1C;
+  font-weight: 600;
+}
+
+table.matrix-table .val-trend {
+  font-size: 0.65rem;
+  margin-right: 0.15rem;
+  vertical-align: 1px;
 }
 
 table.matrix-table tr.total-row th, table.matrix-table tr.total-row td {
