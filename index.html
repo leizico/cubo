@@ -94,6 +94,36 @@
     </div>
   </div>
 
+  <!-- FORMULA FIELD MODAL -->
+  <div id="formulaModal" class="modal-overlay hidden">
+    <div class="modal-card modal-large">
+      <div class="modal-header flex-between">
+        <div>
+          <h3>Novo campo calculado</h3>
+          <p>Monte uma fórmula com os campos da base. Exemplo: <code>[Preço Unitário] - [Custo]</code></p>
+        </div>
+        <button id="closeFormulaBtn" class="btn-icon" type="button">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="formulaNameInput">Nome do campo</label>
+          <input type="text" id="formulaNameInput" placeholder="Ex.: Vlr Comparativo" />
+        </div>
+        <div class="form-group">
+          <label for="formulaExprInput">Fórmula</label>
+          <textarea id="formulaExprInput" rows="3" class="code-editor" placeholder="[Preço Unitário] - [Custo]"></textarea>
+        </div>
+        <p style="font-size:0.75rem;color:var(--color-text-muted);margin-bottom:0.4rem;">Clique para inserir um campo. Operadores: + − × ÷ e parênteses.</p>
+        <div id="formulaFieldPicker" class="formula-field-picker"></div>
+        <div id="formulaError" class="status-msg danger hidden"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="btnApplyFormula" class="btn btn-primary" type="button">Criar campo</button>
+        <button id="btnCancelFormula" class="btn btn-secondary" type="button">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- FIELD FILTER VALUES MODAL -->
   <div id="filterModal" class="modal-overlay hidden">
     <div class="modal-card">
@@ -265,6 +295,7 @@
         <div class="sidebar-section">
           <div class="section-header">
             <span class="section-title">CAMPOS DA BASE</span>
+            <button id="btnNewFormula" class="btn btn-xs btn-primary" type="button" disabled title="Criar campo calculado">+ Fórmula</button>
             <span class="badge" id="fieldsCountBadge">0</span>
           </div>
 

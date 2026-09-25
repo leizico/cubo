@@ -487,6 +487,29 @@ body.fullscreen-matrix-active .modal-overlay {
   background: #EEF2FF;
 }
 
+.formula-field-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.formula-field-chip {
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface-secondary);
+  color: var(--color-text-main);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  padding: 0.2rem 0.55rem;
+  cursor: pointer;
+}
+
+.formula-field-chip:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
 .date-parts-list {
   display: flex;
   flex-direction: column;

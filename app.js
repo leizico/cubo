@@ -86,6 +86,8 @@ const state = {
   currentDatasetName: null,
   /** Campos virtuais derivados de data: [{ name, source, part }] */
   derivedFields: [],
+  /** Campos calculados: [{ name, expr }] */
+  formulaFields: [],
 };
 
 export function getFieldLabel(field) {
@@ -117,6 +119,7 @@ function generateDemoDataset() {
           const vend = vendedores[Math.floor(Math.random() * vendedores.length)];
           const qtd = Math.floor(Math.random() * 45) + 5;
           const precoUnit = Math.floor(Math.random() * 350) + 50;
+          const custo = Math.round(precoUnit * (0.45 + Math.random() * 0.25));
           const fat = qtd * precoUnit;
           const margem = Math.round(fat * (Math.random() * 0.35 + 0.15));
 
@@ -129,6 +132,8 @@ function generateDemoDataset() {
             'Segmento': seg,
             'Região': reg,
             'Vendedor': vend,
+            'Preço Unitário': precoUnit,
+            'Custo': custo,
             'Faturamento (R$)': fat,
             'Quantidade (unid)': qtd,
             'Margem (R$)': margem
@@ -382,6 +387,246 @@ function detectType(values, fieldName = '') {
   return 'text';
 }
 
+function normFieldKey(s) {
+  return String(s || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseFormulaNumber(raw) {
+  let s = String(raw).trim();
+  if (s.includes(',') && s.includes('.')) {
+    if (s.lastIndexOf(',') > s.lastIndexOf('.')) s = s.replace(/\./g, '').replace(',', '.');
+    else s = s.replace(/,/g, '');
+  } else if (s.includes(',')) {
+    s = s.replace(',', '.');
+  }
+  const n = Number(s);
+  if (!Number.isFinite(n)) throw new Error(`Número inválido: ${raw}`);
+  return n;
+}
+
+function rowNumber(row, field) {
+  const v = row[field];
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (v === null || v === undefined || v === '') return 0;
+  try {
+    const n = parseFormulaNumber(String(v).replace(/[R$\s]/gi, ''));
+    return Number.isFinite(n) ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Avalia fórmulas aritméticas (+ - * / parênteses) com campos [Nome] ou o nome solto.
+ * Não executa código arbitrário.
+ */
+function compileFormula(expr, fields) {
+  const source = String(expr || '').trim().replace(/^=/, '').trim();
+  if (!source) throw new Error('Informe a fórmula.');
+
+  const catalog = fields
+    .map((field) => ({ field, key: normFieldKey(field) }))
+    .filter((f) => f.key)
+    .sort((a, b) => b.key.length - a.key.length);
+
+  const tokens = [];
+  let i = 0;
+  while (i < source.length) {
+    const ch = source[i];
+    if (/\s/.test(ch)) { i++; continue; }
+    if ('+-*/()'.includes(ch)) {
+      tokens.push({ t: 'op', v: ch });
+      i++;
+      continue;
+    }
+    if (ch === '[') {
+      const end = source.indexOf(']', i + 1);
+      if (end < 0) throw new Error('Falta fechar ] no nome do campo.');
+      const raw = source.slice(i + 1, end);
+      const hit = catalog.find((c) => c.key === normFieldKey(raw) || c.field === raw);
+      if (!hit) throw new Error(`Campo não encontrado: ${raw}`);
+      tokens.push({ t: 'field', v: hit.field });
+      i = end + 1;
+      continue;
+    }
+    if (/[0-9]/.test(ch) || ((ch === '.' || ch === ',') && /[0-9]/.test(source[i + 1] || ''))) {
+      let j = i;
+      while (j < source.length && /[0-9.,]/.test(source[j])) j++;
+      tokens.push({ t: 'num', v: parseFormulaNumber(source.slice(i, j)) });
+      i = j;
+      continue;
+    }
+
+    const normRest = normFieldKey(source.slice(i));
+    const hit = catalog.find((c) => normRest === c.key || normRest.startsWith(`${c.key} `) || normRest.startsWith(`${c.key})`) || normRest.startsWith(`${c.key}+`) || normRest.startsWith(`${c.key}-`) || normRest.startsWith(`${c.key}*`) || normRest.startsWith(`${c.key}/`));
+    if (!hit) throw new Error(`Não entendi a partir de: ${source.slice(i, i + 24)}`);
+
+    let end = i;
+    while (end <= source.length && normFieldKey(source.slice(i, end)) !== hit.key) end++;
+    if (normFieldKey(source.slice(i, end)) !== hit.key) throw new Error(`Campo não encontrado: ${hit.field}`);
+    tokens.push({ t: 'field', v: hit.field });
+    i = end;
+  }
+
+  if (!tokens.length) throw new Error('Fórmula vazia.');
+  if (!tokens.some((t) => t.t === 'field')) throw new Error('A fórmula precisa usar pelo menos um campo.');
+
+  let p = 0;
+  function peek() { return tokens[p]; }
+  function eat(op) {
+    const t = tokens[p];
+    if (!t || t.t !== 'op' || t.v !== op) return false;
+    p++;
+    return true;
+  }
+
+  function parseExpr() {
+    let node = parseTerm();
+    while (peek() && peek().t === 'op' && (peek().v === '+' || peek().v === '-')) {
+      const op = peek().v;
+      p++;
+      node = { t: 'bin', op, l: node, r: parseTerm() };
+    }
+    return node;
+  }
+  function parseTerm() {
+    let node = parseFactor();
+    while (peek() && peek().t === 'op' && (peek().v === '*' || peek().v === '/')) {
+      const op = peek().v;
+      p++;
+      node = { t: 'bin', op, l: node, r: parseFactor() };
+    }
+    return node;
+  }
+  function parseFactor() {
+    if (eat('+')) return parseFactor();
+    if (eat('-')) return { t: 'neg', a: parseFactor() };
+    if (eat('(')) {
+      const node = parseExpr();
+      if (!eat(')')) throw new Error('Falta fechar parêntese.');
+      return node;
+    }
+    const t = peek();
+    if (!t) throw new Error('Fórmula incompleta.');
+    if (t.t === 'num' || t.t === 'field') { p++; return t; }
+    throw new Error('Expressão inválida.');
+  }
+
+  const ast = parseExpr();
+  if (p < tokens.length) throw new Error('Sobra texto no final da fórmula.');
+  return ast;
+}
+
+function evalFormulaAst(node, row) {
+  if (!node) return 0;
+  if (node.t === 'num') return node.v;
+  if (node.t === 'field') return rowNumber(row, node.v);
+  if (node.t === 'neg') return -evalFormulaAst(node.a, row);
+  const l = evalFormulaAst(node.l, row);
+  const r = evalFormulaAst(node.r, row);
+  if (node.op === '+') return l + r;
+  if (node.op === '-') return l - r;
+  if (node.op === '*') return l * r;
+  if (node.op === '/') return r === 0 ? 0 : l / r;
+  return 0;
+}
+
+function availableFormulaSources() {
+  return state.fields.slice();
+}
+
+function createFormulaField(name, expr) {
+  const label = String(name || '').trim();
+  if (!label) throw new Error('Informe o nome do campo.');
+  if (state.fields.includes(label)) throw new Error('Já existe um campo com esse nome.');
+  if (!state.data.length) throw new Error('Carregue uma base antes de criar a fórmula.');
+
+  const ast = compileFormula(expr, availableFormulaSources());
+  state.data.forEach((row) => {
+    const value = evalFormulaAst(ast, row);
+    row[label] = Math.round(value * 100) / 100;
+  });
+
+  state.fields.push(label);
+  state.fieldTypes[label] = 'num';
+  state.formulaFields.push({ name: label, expr: String(expr).trim() });
+  rebuildFieldDistinct(label);
+  const badge = document.getElementById('fieldsCountBadge');
+  if (badge) badge.textContent = state.fields.length;
+  return label;
+}
+
+function removeFormulaField(fieldName) {
+  const idx = state.formulaFields.findIndex((f) => f.name === fieldName);
+  if (idx < 0) return;
+  state.formulaFields.splice(idx, 1);
+  state.fields = state.fields.filter((f) => f !== fieldName);
+  delete state.fieldTypes[fieldName];
+  delete state._fieldDistinct?.[fieldName];
+  delete state.fieldAliases[fieldName];
+  delete state.filterSelected[fieldName];
+  removeFieldEverywhere(fieldName, null);
+  if (state.chart.x === fieldName) state.chart.x = null;
+  if (state.chart.series === fieldName) state.chart.series = null;
+  if (state.chart.value === fieldName) state.chart.value = null;
+  state.data.forEach((row) => { delete row[fieldName]; });
+  const badge = document.getElementById('fieldsCountBadge');
+  if (badge) badge.textContent = state.fields.length;
+}
+
+function openFormulaModal() {
+  const modal = document.getElementById('formulaModal');
+  const picker = document.getElementById('formulaFieldPicker');
+  const err = document.getElementById('formulaError');
+  const nameInput = document.getElementById('formulaNameInput');
+  const exprInput = document.getElementById('formulaExprInput');
+  if (!modal || !picker) return;
+  if (nameInput && !nameInput.value) nameInput.value = '';
+  if (exprInput && !exprInput.value) exprInput.value = '';
+  if (err) { err.textContent = ''; err.classList.add('hidden'); }
+  picker.innerHTML = '';
+  availableFormulaSources().forEach((field) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'formula-field-chip';
+    btn.textContent = field;
+    btn.addEventListener('click', () => {
+      if (!exprInput) return;
+      const token = `[${field}]`;
+      const start = exprInput.selectionStart ?? exprInput.value.length;
+      const end = exprInput.selectionEnd ?? exprInput.value.length;
+      exprInput.value = exprInput.value.slice(0, start) + token + exprInput.value.slice(end);
+      exprInput.focus();
+      const pos = start + token.length;
+      exprInput.setSelectionRange(pos, pos);
+    });
+    picker.appendChild(btn);
+  });
+  modal.classList.remove('hidden');
+  nameInput?.focus();
+}
+
+function applyFormulaFromModal() {
+  const err = document.getElementById('formulaError');
+  const name = document.getElementById('formulaNameInput')?.value || '';
+  const expr = document.getElementById('formulaExprInput')?.value || '';
+  try {
+    createFormulaField(name, expr);
+    document.getElementById('formulaModal')?.classList.add('hidden');
+    refreshAll();
+  } catch (e) {
+    if (err) {
+      err.textContent = e.message || 'Fórmula inválida';
+      err.classList.remove('hidden');
+    }
+  }
+}
+
 // LOAD DATASET INTO STATE
 async function loadDataset(rows, datasetName = 'Dados Importados', { persist = true, datasetId = null } = {}) {
   state.data = rows;
@@ -415,6 +660,7 @@ async function loadDataset(rows, datasetName = 'Dados Importados', { persist = t
   state.filterSelected = {};
   state.collapsedNodes.clear();
   state.derivedFields = [];
+  state.formulaFields = [];
   state.currentDatasetId = datasetId;
   state.currentDatasetName = datasetName;
 
@@ -525,8 +771,9 @@ function renderFieldPool() {
     chip.dataset.field = f;
 
     const isDerived = state.derivedFields.some((d) => d.name === f);
+    const isFormula = state.formulaFields.some((d) => d.name === f);
     const typeClass = state.fieldTypes[f] === 'num' ? 'num' : (state.fieldTypes[f] === 'date' ? 'date' : 'text');
-    const typeLabel = state.fieldTypes[f] === 'num' ? '123' : (state.fieldTypes[f] === 'date' ? '📅' : (isDerived ? 'ƒ' : 'ABC'));
+    const typeLabel = isFormula ? 'fx' : (state.fieldTypes[f] === 'num' ? '123' : (state.fieldTypes[f] === 'date' ? '📅' : (isDerived ? 'ƒ' : 'ABC')));
 
     const displayLabel = getFieldLabel(f);
     const subText = f !== displayLabel ? ` <span style="font-size:0.65rem; color:var(--color-text-muted);">(${f})</span>` : '';
@@ -556,22 +803,23 @@ function renderFieldPool() {
       }
     }
 
-    if (isDerived) {
+    if (isDerived || isFormula) {
       const delBtn = document.createElement('button');
       delBtn.type = 'button';
       delBtn.className = 'btn-field-date';
-      delBtn.title = 'Remover campo virtual';
+      delBtn.title = isFormula ? 'Remover fórmula' : 'Remover campo virtual';
       delBtn.textContent = '✕';
       delBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        removeDerivedField(f);
+        if (isFormula) removeFormulaField(f);
+        else removeDerivedField(f);
         refreshAll();
       });
       actions.appendChild(delBtn);
     }
 
     const tag = document.createElement('span');
-    tag.className = `type-tag ${typeClass}${isDerived ? ' derived' : ''}`;
+    tag.className = `type-tag ${typeClass}${isDerived || isFormula ? ' derived' : ''}`;
     tag.textContent = typeLabel;
     actions.appendChild(tag);
 
@@ -588,6 +836,21 @@ function renderFieldPool() {
 }
 
 document.getElementById('fieldSearchInput').addEventListener('input', renderFieldPool);
+
+const btnNewFormula = document.getElementById('btnNewFormula');
+if (btnNewFormula) {
+  btnNewFormula.addEventListener('click', () => {
+    if (!state.data.length) return;
+    openFormulaModal();
+  });
+}
+document.getElementById('closeFormulaBtn')?.addEventListener('click', () => {
+  document.getElementById('formulaModal')?.classList.add('hidden');
+});
+document.getElementById('btnCancelFormula')?.addEventListener('click', () => {
+  document.getElementById('formulaModal')?.classList.add('hidden');
+});
+document.getElementById('btnApplyFormula')?.addEventListener('click', applyFormulaFromModal);
 
 function setupDropzone(el, zoneKey) {
   el.addEventListener('dragover', (e) => {
@@ -1995,6 +2258,8 @@ function updateExportButtons() {
   document.getElementById('btnExportXls').disabled = !hasData;
   document.getElementById('btnExportPdf').disabled = !hasData;
   document.getElementById('btnSaveCube').disabled = !state.data.length;
+  const btnFormula = document.getElementById('btnNewFormula');
+  if (btnFormula) btnFormula.disabled = !state.data.length;
 }
 
 function exportMatrix(bookType) {
@@ -2313,6 +2578,17 @@ function applySavedCube(item) {
     });
   }
 
+  if (Array.isArray(item.formulaFields) && item.formulaFields.length) {
+    item.formulaFields.forEach((f) => {
+      if (!f?.name || !f?.expr || state.fields.includes(f.name)) return;
+      try {
+        createFormulaField(f.name, f.expr);
+      } catch (err) {
+        console.warn('Fórmula não recriada:', f.name, err.message);
+      }
+    });
+  }
+
   const validField = (f) => state.fields.includes(f);
 
   state.pivot.rows = (item.pivot.rows || []).filter(validField);
@@ -2384,6 +2660,7 @@ if (btnSaveCube) {
       fieldSortDirs: state.fieldSortDirs,
       filterSelected: filterSelectedObj,
       derivedFields: state.derivedFields,
+      formulaFields: state.formulaFields,
       chart: state.chart,
       chartType: document.getElementById('chartType') ? document.getElementById('chartType').value : 'bar',
     };
