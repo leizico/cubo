@@ -45,6 +45,9 @@ export function initAuth(onUserChange) {
   const inputName = document.getElementById('inputName');
   const userNameLabel = document.getElementById('userNameLabel');
   const btnLogout = document.getElementById('btnLogout');
+  const btnOpenLogin = document.getElementById('btnOpenLogin');
+  const btnSkipLogin = document.getElementById('btnSkipLogin');
+  const userAvatar = document.getElementById('userAvatar');
   const authModeHint = document.getElementById('authModeHint');
   const authToggleBtn = document.getElementById('authToggleMode');
   const submitLoginBtn = document.getElementById('submitLoginBtn');
@@ -81,13 +84,20 @@ export function initAuth(onUserChange) {
   }
 
   function updateUI(session) {
-    if (session && (session.username || session.email)) {
-      loginModal.classList.add('hidden');
+    const logged = !!(session && (session.username || session.email));
+    if (logged) {
+      loginModal?.classList.add('hidden');
       if (userNameLabel) userNameLabel.textContent = session.name || session.email || session.username;
-      if (onUserChange) onUserChange(session);
+      if (userAvatar) userAvatar.textContent = String(session.name || session.email || 'U').slice(0, 2).toUpperCase();
+      btnLogout?.classList.remove('hidden');
+      btnOpenLogin?.classList.add('hidden');
     } else {
-      loginModal.classList.remove('hidden');
+      if (userNameLabel) userNameLabel.textContent = 'Visitante';
+      if (userAvatar) userAvatar.textContent = 'VI';
+      btnLogout?.classList.add('hidden');
+      btnOpenLogin?.classList.remove('hidden');
     }
+    if (onUserChange) onUserChange(session || null);
   }
 
   async function restoreSession() {
@@ -144,11 +154,21 @@ export function initAuth(onUserChange) {
         setSession(session);
         updateUI(session);
       } catch (err) {
-        showError(err.message || 'Falha na autenticação');
+        const msg = err.name === 'TimeoutError'
+          ? 'O servidor demorou para responder. Você pode continuar sem login.'
+          : (err.message || 'Falha na autenticação');
+        showError(msg);
       } finally {
         if (submitBtn) submitBtn.disabled = false;
       }
     });
+  }
+
+  if (btnOpenLogin) {
+    btnOpenLogin.addEventListener('click', () => loginModal?.classList.remove('hidden'));
+  }
+  if (btnSkipLogin) {
+    btnSkipLogin.addEventListener('click', () => loginModal?.classList.add('hidden'));
   }
 
   if (btnLogout) {
@@ -158,7 +178,6 @@ export function initAuth(onUserChange) {
       } catch {}
       clearSession();
       updateUI(null);
-      window.location.reload();
     });
   }
 

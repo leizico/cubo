@@ -55,10 +55,57 @@ function dimValuesMatch(a, b) {
 const AGGS = {
   sum: { label: 'Soma', fn: (arr) => arr.reduce((a, b) => a + b, 0) },
   count: { label: 'Contagem', fn: (arr) => arr.length },
-  avg: { label: 'Média', fn: (arr) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0 },
+  avg: { label: 'Média pond.', fn: (arr) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0 },
   min: { label: 'Mínimo', fn: (arr) => arr.length ? Math.min(...arr) : 0 },
   max: { label: 'Máximo', fn: (arr) => arr.length ? Math.max(...arr) : 0 },
 };
+
+function toNumber(v) {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (v === null || v === undefined || v === '') return 0;
+  const s = String(v).trim().replace(/\s/g, '');
+  if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s) || /^-?\d+,\d+$/.test(s)) {
+    const br = parseFloat(s.replace(/\./g, '').replace(',', '.'));
+    return Number.isFinite(br) ? br : 0;
+  }
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Campo numérico de quantidade/volume usado como peso da média. */
+function detectWeightField(valueField) {
+  const named = state.fields.find((f) => {
+    if (f === valueField) return false;
+    if (state.fieldTypes[f] !== 'num') return false;
+    return /qtd|quant|qty|volume|unid|peso|weight/i.test(f);
+  });
+  return named || null;
+}
+
+/**
+ * Média ponderada: soma total do valor / soma da quantidade.
+ */
+function weightedAverage(rows, valueField, qtyField) {
+  if (!qtyField) return 0;
+  let total = 0;
+  let qty = 0;
+  rows.forEach((row) => {
+    total += toNumber(row[valueField]);
+    qty += toNumber(row[qtyField]);
+  });
+  return qty ? total / qty : 0;
+}
+
+function aggregateRows(rows, valDef) {
+  if (!valDef || !valDef.field) return rows.length;
+  if (valDef.agg === 'count') return rows.length;
+  if (valDef.agg === 'avg') {
+    const weightField = valDef.weight || detectWeightField(valDef.field);
+    return weightedAverage(rows, valDef.field, weightField);
+  }
+  const nums = rows.map((row) => toNumber(row[valDef.field]));
+  return AGGS[valDef.agg] ? AGGS[valDef.agg].fn(nums) : AGGS.sum.fn(nums);
+}
 
 // GLOBAL APP STATE
 const state = {
@@ -1253,10 +1300,31 @@ function renderValuesZone() {
     });
     aggSel.addEventListener('change', () => {
       v.agg = aggSel.value;
+      if (v.agg === 'avg' && !v.weight) v.weight = detectWeightField(v.field);
       renderMatrix();
+      renderValuesZone();
     });
 
     chip.appendChild(aggSel);
+
+    if (v.agg === 'avg') {
+      if (!v.weight) v.weight = detectWeightField(v.field);
+      const weightSel = document.createElement('select');
+      weightSel.title = 'Quantidade da média ponderada (soma total / soma da quantidade)';
+      state.fields.filter((f) => f !== v.field && state.fieldTypes[f] === 'num').forEach((f) => {
+        const o = document.createElement('option');
+        o.value = f;
+        o.textContent = `Qtd: ${getFieldLabel(f)}`;
+        if (f === v.weight) o.selected = true;
+        weightSel.appendChild(o);
+      });
+      weightSel.addEventListener('change', () => {
+        v.weight = weightSel.value || null;
+        renderMatrix();
+      });
+      chip.appendChild(weightSel);
+    }
+
     const removeBtn = document.createElement('button');
     removeBtn.className = 'btn-remove';
     removeBtn.textContent = '✕';
@@ -1386,12 +1454,7 @@ function buildPivotModel() {
     const rk = rowCombo.join('\u0001');
     const ck = colCombo.join('\u0001');
     const bucket = buckets.get(rk + '\u0002' + ck) || [];
-    if (!valDef.field) return AGGS.count.fn(bucket.map(() => 1));
-    const nums = bucket.map((r) => {
-      const v = r[valDef.field];
-      return typeof v === 'number' ? v : (parseFloat(v) || 0);
-    });
-    return AGGS[valDef.agg] ? AGGS[valDef.agg].fn(nums) : AGGS.sum.fn(nums);
+    return aggregateRows(bucket, valDef);
   }
 
   return { data, rowFields, colFields, values, rowCombos, colCombos, cellAgg };
@@ -1756,8 +1819,7 @@ function renderMatrix() {
     });
 
     values.forEach((v) => {
-      const nums = m.data.map(r => typeof r[v.field] === 'number' ? r[v.field] : (parseFloat(r[v.field]) || 0));
-      const val = !v.field ? m.data.length : AGGS[v.agg].fn(nums);
+      const val = aggregateRows(m.data, v);
       const td = document.createElement('td');
       td.className = 'val-cell total-col';
       paintValueCell(td, val, v.field);
@@ -1779,8 +1841,7 @@ function renderMatrix() {
   colCombos.forEach((cc) => {
     values.forEach((v) => {
       const allInCol = m.data.filter((r) => colFields.length ? colFields.every((f, i) => dimValuesMatch(r[f], cc[i])) : true);
-      const nums = allInCol.map(r => typeof r[v.field] === 'number' ? r[v.field] : (parseFloat(r[v.field]) || 0));
-      const val = !v.field ? allInCol.length : AGGS[v.agg].fn(nums);
+      const val = aggregateRows(allInCol, v);
       const td = document.createElement('td');
       td.className = 'val-cell';
       paintValueCell(td, val, v.field);
@@ -1789,8 +1850,7 @@ function renderMatrix() {
   });
 
   values.forEach((v) => {
-    const nums = m.data.map(r => typeof r[v.field] === 'number' ? r[v.field] : (parseFloat(r[v.field]) || 0));
-    const val = !v.field ? m.data.length : AGGS[v.agg].fn(nums);
+    const val = aggregateRows(m.data, v);
     const td = document.createElement('td');
     td.className = 'val-cell total-col';
     paintValueCell(td, val, v.field);
@@ -1906,8 +1966,7 @@ function generateTableRowsFromTree(nodes, rowFields, colFields, colCombos, value
       });
 
       values.forEach((v) => {
-        const nums = node.rows.map(r => typeof r[v.field] === 'number' ? r[v.field] : (parseFloat(r[v.field]) || 0));
-        const val = !v.field ? node.rows.length : AGGS[v.agg].fn(nums);
+        const val = aggregateRows(node.rows, v);
         const td = document.createElement('td');
         td.className = 'val-cell total-col';
         paintValueCell(td, val, v.field);
@@ -1989,8 +2048,7 @@ function generateTableRowsFromTree(nodes, rowFields, colFields, colCombos, value
         });
 
         values.forEach((v) => {
-          const nums = node.rows.map(r => typeof r[v.field] === 'number' ? r[v.field] : (parseFloat(r[v.field]) || 0));
-          const val = !v.field ? node.rows.length : AGGS[v.agg].fn(nums);
+          const val = aggregateRows(node.rows, v);
           const td = document.createElement('td');
           td.className = 'val-cell total-col';
           paintValueCell(td, val, v.field);
@@ -2052,8 +2110,7 @@ function generateTableRowsFromTree(nodes, rowFields, colFields, colCombos, value
 
       // Leaf row grand total
       values.forEach((v) => {
-        const nums = node.rows.map(r => typeof r[v.field] === 'number' ? r[v.field] : (parseFloat(r[v.field]) || 0));
-        const val = !v.field ? node.rows.length : AGGS[v.agg].fn(nums);
+        const val = aggregateRows(node.rows, v);
         const td = document.createElement('td');
         td.className = 'val-cell total-col';
         paintValueCell(td, val, v.field);
@@ -2075,9 +2132,8 @@ function aggregateBucket(rows, colFields, colCombo, valDef) {
     return colFields.every((f, i) => dimValuesMatch(r[f], colCombo[i]));
   });
 
-  if (!valDef.field) return AGGS.count.fn(matched.map(() => 1));
-  const nums = matched.map(r => typeof r[valDef.field] === 'number' ? r[valDef.field] : (parseFloat(r[valDef.field]) || 0));
-  return AGGS[valDef.agg] ? AGGS[valDef.agg].fn(nums) : AGGS.sum.fn(nums);
+  if (!valDef.field) return rows.length;
+  return aggregateRows(matched, valDef);
 }
 
 // TREE EXPAND/COLLAPSE TOOLBAR CONTROLS
@@ -2143,8 +2199,7 @@ function buildMatrixAOA(m, effectiveRowCombos) {
     });
     values.forEach((v) => {
       const allInRow = m.data.filter(r => rowFields.length ? rowFields.every((f, i) => dimValuesMatch(r[f], rc[i])) : true);
-      const nums = allInRow.map(r => typeof r[v.field] === 'number' ? r[v.field] : (parseFloat(r[v.field]) || 0));
-      const val = !v.field ? allInRow.length : AGGS[v.agg].fn(nums);
+      const val = aggregateRows(allInRow, v);
       line.push(Math.round(val * 100) / 100);
     });
     aoa.push(line);
@@ -2176,7 +2231,7 @@ function renderChart() {
   }
 
   const data = getFilteredData();
-  const aggFn = AGGS[agg] ? AGGS[agg].fn : AGGS.sum.fn;
+  const valDef = { field: value, agg, weight: agg === 'avg' ? detectWeightField(value) : null };
 
   let xVals = Array.from(new Set(data.map(r => normalizeDimValue(r[x]))));
 
@@ -2194,8 +2249,7 @@ function renderChart() {
     sVals.forEach((sv, i) => {
       const arr = xVals.map((xv) => {
         const rows = data.filter(r => normalizeDimValue(r[x]) === xv && normalizeDimValue(r[series]) === sv);
-        const nums = rows.map(r => typeof r[value] === 'number' ? r[value] : (parseFloat(r[value]) || 0));
-        return nums.length ? aggFn(nums) : 0;
+        return aggregateRows(rows, valDef);
       });
       datasets.push({
         label: String(sv),
@@ -2207,8 +2261,7 @@ function renderChart() {
   } else {
     const arr = xVals.map((xv) => {
       const rows = data.filter(r => normalizeDimValue(r[x]) === xv);
-      const nums = rows.map(r => typeof r[value] === 'number' ? r[value] : (parseFloat(r[value]) || 0));
-      return nums.length ? aggFn(nums) : 0;
+      return aggregateRows(rows, valDef);
     });
     datasets.push({
       label: `${AGGS[agg] ? AGGS[agg].label : 'Soma'} de ${value}`,

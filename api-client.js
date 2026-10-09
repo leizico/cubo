@@ -33,6 +33,7 @@ export async function api(path, { method = 'GET', body, auth = true } = {}) {
     headers,
     credentials: 'include',
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(20000),
   });
 
   let data = null;
