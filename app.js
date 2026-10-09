@@ -72,30 +72,29 @@ function toNumber(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Campo numérico de quantidade/volume usado como peso da média. */
+/** Campo de quantidade usado na média ponderada. */
 function detectWeightField(valueField) {
-  const named = state.fields.find((f) => {
+  return state.fields.find((f) => {
     if (f === valueField) return false;
     if (state.fieldTypes[f] !== 'num') return false;
-    return /qtd|quant|qty|volume|unid|peso|weight/i.test(f);
-  });
-  return named || null;
+    return /qtd|quant|qty|unid/i.test(f);
+  }) || null;
 }
 
 /**
- * Média ponderada: Σ(valor × peso) / Σ(peso).
- * Sem campo de peso, cada linha vale 1.
+ * Média ponderada: Σ(valor × quantidade) / Σ(quantidade).
  */
-function weightedAverage(rows, valueField, weightField) {
+function weightedAverage(rows, valueField, qtyField) {
+  if (!qtyField) return 0;
   let weighted = 0;
-  let weights = 0;
+  let qty = 0;
   rows.forEach((row) => {
-    const weight = weightField ? toNumber(row[weightField]) : 1;
-    if (!weight) return;
-    weighted += toNumber(row[valueField]) * weight;
-    weights += weight;
+    const quantity = toNumber(row[qtyField]);
+    if (!quantity) return;
+    weighted += toNumber(row[valueField]) * quantity;
+    qty += quantity;
   });
-  return weights ? weighted / weights : 0;
+  return qty ? weighted / qty : 0;
 }
 
 function aggregateRows(rows, valDef) {
@@ -1312,15 +1311,16 @@ function renderValuesZone() {
     if (v.agg === 'avg') {
       if (!v.weight) v.weight = detectWeightField(v.field);
       const weightSel = document.createElement('select');
-      weightSel.title = 'Peso da média ponderada';
+      weightSel.title = 'Quantidade da média ponderada: soma de (valor × quantidade) / soma da quantidade';
       const none = document.createElement('option');
       none.value = '';
-      none.textContent = 'Peso: linha';
+      none.textContent = 'Escolha a quantidade';
+      if (!v.weight) none.selected = true;
       weightSel.appendChild(none);
       state.fields.filter((f) => f !== v.field && state.fieldTypes[f] === 'num').forEach((f) => {
         const o = document.createElement('option');
         o.value = f;
-        o.textContent = `Peso: ${getFieldLabel(f)}`;
+        o.textContent = `Qtd: ${getFieldLabel(f)}`;
         if (f === v.weight) o.selected = true;
         weightSel.appendChild(o);
       });
