@@ -83,17 +83,19 @@ function detectWeightField(valueField) {
 }
 
 /**
- * Média ponderada: soma total do valor / soma da quantidade.
+ * Média ponderada: Σ(valor × peso) / Σ(peso).
+ * Sem campo de peso, cada linha vale 1.
  */
-function weightedAverage(rows, valueField, qtyField) {
-  if (!qtyField) return 0;
-  let total = 0;
-  let qty = 0;
+function weightedAverage(rows, valueField, weightField) {
+  let weighted = 0;
+  let weights = 0;
   rows.forEach((row) => {
-    total += toNumber(row[valueField]);
-    qty += toNumber(row[qtyField]);
+    const weight = weightField ? toNumber(row[weightField]) : 1;
+    if (!weight) return;
+    weighted += toNumber(row[valueField]) * weight;
+    weights += weight;
   });
-  return qty ? total / qty : 0;
+  return weights ? weighted / weights : 0;
 }
 
 function aggregateRows(rows, valDef) {
@@ -1310,11 +1312,15 @@ function renderValuesZone() {
     if (v.agg === 'avg') {
       if (!v.weight) v.weight = detectWeightField(v.field);
       const weightSel = document.createElement('select');
-      weightSel.title = 'Quantidade da média ponderada (soma total / soma da quantidade)';
+      weightSel.title = 'Peso da média ponderada';
+      const none = document.createElement('option');
+      none.value = '';
+      none.textContent = 'Peso: linha';
+      weightSel.appendChild(none);
       state.fields.filter((f) => f !== v.field && state.fieldTypes[f] === 'num').forEach((f) => {
         const o = document.createElement('option');
         o.value = f;
-        o.textContent = `Qtd: ${getFieldLabel(f)}`;
+        o.textContent = `Peso: ${getFieldLabel(f)}`;
         if (f === v.weight) o.selected = true;
         weightSel.appendChild(o);
       });
